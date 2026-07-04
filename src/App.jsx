@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { unlockAudio, playMachineRattle, playSmokeSound, playCapsulePop } from './gachaSounds';
 
 function App() {
   const [screen, setScreen] = useState('config');
@@ -31,6 +32,22 @@ function App() {
   const isDragging = useRef(false);
   const accumulatedRotation = useRef(0); 
   const lastAngle = useRef(0);
+
+  // 演出タイミングに合わせた効果音
+  useEffect(() => {
+    if (!isBodyThumping) return;
+    return playMachineRattle(800);
+  }, [isBodyThumping]);
+
+  useEffect(() => {
+    if (!isSmokeActive) return;
+    return playSmokeSound(600);
+  }, [isSmokeActive]);
+
+  useEffect(() => {
+    if (!isCapsulePopped) return;
+    playCapsulePop();
+  }, [isCapsulePopped]);
 
   // URLパラメータの読み込み
   useEffect(() => {
@@ -157,6 +174,7 @@ function App() {
 
   const handleMouseDown = (e) => {
     if (currentPrize || isBodyThumping || gachaStatus === 'error' || gachaStatus === 'soldout') return;
+    unlockAudio();
     isDragging.current = true;
     lastAngle.current = getAngle(e.clientX, e.clientY);
     accumulatedRotation.current = 0;
@@ -530,7 +548,7 @@ function App() {
                 <div style={{ width: '110px', height: '110px', background: '#fff', borderRadius: '0 110px 110px 0', transform: 'rotate(15deg)', border: '3px solid #cbd5e1', borderLeft: 'none', boxShadow: '0 5px 15px rgba(0,0,0,0.3)' }} />
               </div>
               <h1 style={{ fontSize: '64px', color: gachaStatus === 'awakened' ? '#ffd700' : '#005ea6', margin: '10px 0', fontWeight: '900' }}>
-                {gachaStatus === 'awakened' ? '✨ PREMIUM LAST ONE ✨' : '🎉 カプセルをあけました！'}
+                {gachaStatus === 'awakened' ? '✨ 20歳の誕生日おめでとう ✨' : '🎉 カプセルをあけました！'}
               </h1>
               <div style={{
                 background: '#fff', color: '#1e293b', padding: '50px 90px', borderRadius: '24px',
