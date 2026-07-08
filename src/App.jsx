@@ -1,6 +1,55 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { unlockAudio, playMachineRattle, playSmokeSound, playCapsulePop } from './gachaSounds';
 
+const HANDLE_RING_BORDER = 40;
+const TURN_ARROW_SIZE = 36;
+
+const TurnArrow = ({ color = '#ffd100', rotation = 0, size = TURN_ARROW_SIZE }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 36 36"
+    aria-hidden="true"
+    style={{
+      transform: `rotate(${rotation}deg)`,
+      filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.35))',
+      display: 'block',
+      overflow: 'visible',
+    }}
+  >
+    <path
+      d="M 6 15.5 H 21.5 V 11 L 30 18 L 21.5 25 V 20.5 H 6 Z"
+      fill={color}
+    />
+  </svg>
+);
+
+const HandleArrow = ({ color = '#ffd100', direction = 'right', width = 22, height = 14 }) => {
+  const isRight = direction === 'right';
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 22 14"
+      aria-hidden="true"
+      style={{ display: 'block', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))' }}
+    >
+      <polygon
+        points={isRight ? '1,0 21,7 1,14' : '21,0 1,7 21,14'}
+        fill={color}
+      />
+    </svg>
+  );
+};
+
+const RING_TURN_ARROWS = [
+  { key: 'top', style: { top: `-${HANDLE_RING_BORDER + 2}px`, left: '50%', transform: 'translateX(-50%)' }, rotation: 0 },
+  { key: 'right', style: { top: '50%', right: `-${HANDLE_RING_BORDER + 2}px`, transform: 'translateY(-50%)' }, rotation: 90 },
+  { key: 'bottom', style: { bottom: `-${HANDLE_RING_BORDER + 2}px`, left: '50%', transform: 'translateX(-50%)' }, rotation: 180 },
+  { key: 'left', style: { top: '50%', left: `-${HANDLE_RING_BORDER + 2}px`, transform: 'translateY(-50%)' }, rotation: 270 },
+];
+
 function App() {
   const [screen, setScreen] = useState('config');
 
@@ -27,11 +76,27 @@ function App() {
   const [orderedPrizes, setOrderedPrizes] = useState([]); 
   const [commandInput, setCommandInput] = useState(''); 
   const [capsuleStyles, setCapsuleStyles] = useState([]);
+  const [scale, setScale] = useState(1);
 
   const dialRef = useRef(null);
   const isDragging = useRef(false);
   const accumulatedRotation = useRef(0); 
   const lastAngle = useRef(0);
+
+  // 画面リサイズ時にガチャ筐体がぴったり収まるようにスケール調整
+  useEffect(() => {
+    const handleResize = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const scaleW = w / 540;
+      const scaleH = h / 900;
+      const minScale = Math.min(scaleW, scaleH);
+      setScale(Math.min(1, minScale));
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 演出タイミングに合わせた効果音
   useEffect(() => {
@@ -48,6 +113,19 @@ function App() {
     if (!isCapsulePopped) return;
     playCapsulePop();
   }, [isCapsulePopped]);
+
+  useEffect(() => {
+    // #region agent log
+    if (dialRef.current) {
+      const parent = dialRef.current.parentElement;
+      if (parent) {
+        const rect = parent.getBoundingClientRect();
+        const computedStyle = window.getComputedStyle(parent);
+        fetch('http://127.0.0.1:7714/ingest/e61bfd62-c7cc-41c6-b32e-082bb8f0d4dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'573413'},body:JSON.stringify({sessionId:'573413',hypothesisId:'C',location:'App.jsx:useEffect:arrows',message:'Parent element dimensions',data:{width:rect.width,height:rect.height,borderWidth:computedStyle.borderWidth,boxSizing:computedStyle.boxSizing},timestamp:Date.now()})}).catch(()=>{});
+      }
+    }
+    // #endregion
+  }, []);
 
   // URLパラメータの読み込み
   useEffect(() => {
@@ -169,7 +247,11 @@ function App() {
   const getAngle = (clientX, clientY) => {
     if (!dialRef.current) return 0;
     const rect = dialRef.current.getBoundingClientRect();
-    return Math.atan2(clientY - (rect.top + rect.height / 2), clientX - (rect.left + rect.width / 2)) * (180 / Math.PI);
+    const angle = Math.atan2(clientY - (rect.top + rect.height / 2), clientX - (rect.left + rect.width / 2)) * (180 / Math.PI);
+    // #region agent log
+    fetch('http://127.0.0.1:7714/ingest/e61bfd62-c7cc-41c6-b32e-082bb8f0d4dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'573413'},body:JSON.stringify({sessionId:'573413',hypothesisId:'B',location:'App.jsx:getAngle',message:'Calculated angle',data:{clientX,clientY,rectTop:rect.top,rectLeft:rect.left,angle},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return angle;
   };
 
   const handleMouseDown = (e) => {
@@ -202,6 +284,56 @@ function App() {
   };
 
   const handleMouseUp = () => {
+    isDragging.current = false;
+    setIsShaking(false);
+    if (!currentPrize && !isBodyThumping) {
+      setDialRotation(0);
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7714/ingest/e61bfd62-c7cc-41c6-b32e-082bb8f0d4dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'573413'},body:JSON.stringify({sessionId:'573413',hypothesisId:'A',location:'App.jsx:handleTouchStart',message:'Touch start detected',data:{hasTouches: !!e.touches, touchCount: e.touches?.length},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (currentPrize || isBodyThumping || gachaStatus === 'error' || gachaStatus === 'soldout') return;
+    unlockAudio();
+    isDragging.current = true;
+    const touch = e.touches[0];
+    lastAngle.current = getAngle(touch.clientX, touch.clientY);
+    accumulatedRotation.current = 0;
+    setIsShaking(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDragging.current) return;
+    if (e.cancelable) e.preventDefault();
+    const touch = e.touches[0];
+    const currentAngle = getAngle(touch.clientX, touch.clientY);
+    let diff = currentAngle - lastAngle.current;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+
+    // #region agent log
+    fetch('http://127.0.0.1:7714/ingest/e61bfd62-c7cc-41c6-b32e-082bb8f0d4dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'573413'},body:JSON.stringify({sessionId:'573413',hypothesisId:'B',location:'App.jsx:handleTouchMove',message:'Touch move angle diff',data:{diff,accumulated:accumulatedRotation.current},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+
+    if (diff > 0) {
+      accumulatedRotation.current += diff;
+      setDialRotation(prev => prev + diff);
+    }
+    lastAngle.current = currentAngle;
+
+    if (accumulatedRotation.current >= 360) {
+      isDragging.current = false;
+      setIsShaking(false);
+      startSequenceAfterTurn();
+    }
+  };
+
+  const handleTouchEnd = () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7714/ingest/e61bfd62-c7cc-41c6-b32e-082bb8f0d4dd',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'573413'},body:JSON.stringify({sessionId:'573413',hypothesisId:'A',location:'App.jsx:handleTouchEnd',message:'Touch end detected',data:{},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     isDragging.current = false;
     setIsShaking(false);
     if (!currentPrize && !isBodyThumping) {
@@ -314,12 +446,12 @@ function App() {
   // --- 【システムエラー画面】 ---
   if (gachaStatus === 'error') {
     return (
-      <div style={{ width: '100vw', height: '100vh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '40px', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '80px', margin: '0 0 20px 0', borderBottom: '6px solid #ff3b30', paddingBottom: '10px', fontWeight: 'bold' }}>⚠️ SYSTEM ERROR</h1>
-        <p style={{ fontSize: '32px', textAlign: 'center', maxWidth: '900px', lineHeight: '1.6', background: '#000', padding: '40px', borderRadius: '12px', border: '2px solid #444', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+      <div style={{ width: '100vw', height: '100vh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '20px', boxSizing: 'border-box' }}>
+        <h1 style={{ fontSize: 'clamp(32px, 8vw, 80px)', margin: '0 0 20px 0', borderBottom: '6px solid #ff3b30', paddingBottom: '10px', fontWeight: 'bold', textAlign: 'center' }}>⚠️ SYSTEM ERROR</h1>
+        <p style={{ fontSize: 'clamp(16px, 4vw, 32px)', textAlign: 'center', maxWidth: '900px', lineHeight: '1.6', background: '#000', padding: '20px 30px', borderRadius: '12px', border: '2px solid #444', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', wordBreak: 'break-all' }}>
           {loadedConfig.errorMsg}
         </p>
-        <p style={{ color: '#aaa', marginTop: '50px', fontSize: '20px', letterSpacing: '1px' }}>[管理者権限パスコードをキーボードで入力してください...]</p>
+        <p style={{ color: '#aaa', marginTop: '40px', fontSize: 'clamp(12px, 3vw, 20px)', letterSpacing: '1px', textAlign: 'center' }}>[管理者権限パスコードをキーボードで入力してください...]</p>
       </div>
     );
   }
@@ -329,6 +461,8 @@ function App() {
     <div 
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       style={{
         width: '100vw', height: '100vh',
         background: '#111317', color: '#2f3542',
@@ -336,15 +470,24 @@ function App() {
         display: 'flex', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', userSelect: 'none'
       }}
     >
-      <div className={isBodyThumping ? 'bodyThump' : ''} style={{
+      {/* 画面サイズに合わせて全体を伸縮させるためのスケール用ラッパー */}
+      <div style={{
         width: '530px', height: '890px',
-        background: '#f8f9fa', 
-        border: '4px solid #cbd5e1', 
-        borderRadius: '35px 35px 20px 20px',
-        boxShadow: '0 40px 80px rgba(0,0,0,0.6), inset 0 10px 0 #fff',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative',
-        boxSizing: 'border-box', padding: '0 0 20px 0'
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        transform: `scale(${scale})`,
+        transformOrigin: 'center center',
+        flexShrink: 0
       }}>
+        <div className={isBodyThumping ? 'bodyThump' : ''} style={{
+          width: '530px', height: '890px',
+          background: '#f8f9fa', 
+          border: '4px solid #cbd5e1', 
+          borderRadius: '35px 35px 20px 20px',
+          boxShadow: '0 40px 80px rgba(0,0,0,0.6), inset 0 10px 0 #fff',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative',
+          boxSizing: 'border-box', padding: '0 0 20px 0',
+          willChange: 'transform'
+        }}>
         
         {/* 看板エリア */}
         <div style={{
@@ -449,26 +592,41 @@ function App() {
             </div>
           </div>
 
-          {/* 実機ハンドル（極太リング ＆ ぷっくり自作ポップ矢印「➔」） */}
+          {/* 実機ハンドル（極太リング ＆ 回転方向を示す矢印） */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '2px 0' }}>
             <div style={{
               width: '210px', height: '210px',
               background: '#fff', borderRadius: '50%',
-              border: gachaStatus === 'awakened' ? '30px solid #ff007f' : '30px solid #005ea6', // 覚醒時はリングもピンクに！
+              border: gachaStatus === 'awakened' ? `${HANDLE_RING_BORDER}px solid #ff007f` : `${HANDLE_RING_BORDER}px solid #005ea6`,
               boxShadow: gachaStatus === 'awakened' ? '0 10px 25px rgba(255,0,127,0.3)' : '0 10px 22px rgba(0,0,0,0.18), inset 0 4px 8px rgba(0,0,0,0.15)',
               display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative',
-              transition: 'border-color 0.5s ease'
+              transition: 'border-color 0.5s ease',
+              boxSizing: 'border-box',
             }}>
               
-              {/* 自作ポップ矢印パーツ */}
-              <div className="popArrow" style={{ top: '-24px', transform: 'rotate(90deg)' }}><div className="arrowStem" style={{background: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /><div className="arrowHead" style={{borderColor: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /></div>
-              <div className="popArrow" style={{ right: '-24px', transform: 'rotate(180deg)' }}><div className="arrowStem" style={{background: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /><div className="arrowHead" style={{borderColor: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /></div>
-              <div className="popArrow" style={{ bottom: '-24px', transform: 'rotate(270deg)' }}><div className="arrowStem" style={{background: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /><div className="arrowHead" style={{borderColor: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /></div>
-              <div className="popArrow" style={{ left: '-24px', transform: 'rotate(0deg)' }}><div className="arrowStem" style={{background: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /><div className="arrowHead" style={{borderColor: gachaStatus === 'awakened' ? '#fff' : '#ffd100'}} /></div>
+              {/* 時計回りの回転方向を示す矢印 */}
+              {RING_TURN_ARROWS.map(({ key, style, rotation }) => (
+                <div
+                  key={key}
+                  style={{
+                    position: 'absolute',
+                    zIndex: 5,
+                    width: `${TURN_ARROW_SIZE}px`,
+                    height: `${TURN_ARROW_SIZE}px`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    ...style,
+                  }}
+                >
+                  <TurnArrow color={gachaStatus === 'awakened' ? '#fff' : '#ffd100'} rotation={rotation} />
+                </div>
+              ))}
 
               {/* 回転する持ち手 */}
               <div 
-                ref={dialRef} onMouseDown={handleMouseDown}
+                ref={dialRef} onMouseDown={handleMouseDown} onTouchStart={handleTouchStart}
                 style={{
                   width: '100%', height: '100%', borderRadius: '50%',
                   transform: `rotate(${dialRotation}deg)`,
@@ -478,14 +636,14 @@ function App() {
                 }}
               >
                 <div style={{
-                  width: '145px', height: '52px',
+                  width: '120px', height: '46px',
                   background: '#fff', borderRadius: '12px',
                   boxShadow: '0 6px 12px rgba(0,0,0,0.2), inset 0 -5px 0 #cbd5e1',
                   border: gachaStatus === 'awakened' ? '3px solid #ff007f' : '3px solid #94a3b8',
-                  position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 18px', boxSizing: 'border-box'
+                  position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 14px', boxSizing: 'border-box'
                 }}>
-                  <div className="popArrowInner" style={{ transform: 'rotate(180deg)' }}><div className="arrowStemInner" /><div className="arrowHeadInner" /></div>
-                  <div className="popArrowInner" style={{ transform: 'rotate(0deg)' }}><div className="arrowStemInner" /><div className="arrowHeadInner" /></div>
+                  <HandleArrow color="#ffd100" direction="left" />
+                  <HandleArrow color="#ffd100" direction="right" />
                 </div>
               </div>
             </div>
@@ -522,6 +680,7 @@ function App() {
           </div>
 
         </div>
+      </div>
       </div>
 
       {/* --- 【景品ポップアップモーダル】 --- */}
@@ -568,12 +727,6 @@ function App() {
 
       {/* スタイルCSS */}
       <style>{`
-        .popArrow { position: absolute; width: 30px; height: 30px; display: flex; justify-content: center; alignItems: center; z-index: 5; filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3)); }
-        .arrowStem { width: 14px; height: 6px; border-radius: 3px; position: absolute; left: 2px; }
-        .arrowHead { width: 10px; height: 10px; border-right: 6px solid; border-bottom: 6px solid; border-radius: 0 3px 0 0; transform: rotate(-45deg); position: absolute; right: 4px; }
-        .popArrowInner { width: 20px; height: 20px; display: flex; justify-content: center; alignItems: center; position: relative; }
-        .arrowStemInner { width: 10px; height: 4px; background: #ffd100; border-radius: 2px; position: absolute; left: 1px; }
-        .arrowHeadInner { width: 6px; height: 6px; border-right: 4px solid #ffd100; border-bottom: 4px solid #ffd100; border-radius: 0 2px 0 0; transform: rotate(-45deg); position: absolute; right: 2px; }
         .bodyThump { animation: bodyThumpAnim 0.05s infinite alternate; }
         @keyframes bodyThumpAnim { 0% { transform: translate(2px, 2px) rotate(0.2deg); } 100% { transform: translate(-2px, -2px) rotate(-0.2deg); } }
         .smokeCloud { position: absolute; background: rgba(220, 225, 235, 0.85); border-radius: 50%; filter: blur(15px); animation: smokeExplode 0.6s ease-out forwards; opacity: 0; }
