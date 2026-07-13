@@ -7,8 +7,69 @@ const DOME_W = 500;
 const DOME_H = 530;
 const CAPSULE_SIZE = 82;
 const CAPSULE_COLORS = ['#ff3366', '#00d4aa', '#4dabff', '#ffb703', '#b967ff', '#ff6b35'];
+const AWAKENED_CAPSULE_COLOR = '#ffd700';
 const POP_OUTLINE = '#2d3436';
 const POP_FONT = '"Arial Rounded MT Bold", "Hiragino Maru Gothic ProN", "Yu Gothic UI", "Comic Sans MS", sans-serif';
+
+const getCapsuleGradient = (color, angle = 135) =>
+  `linear-gradient(${angle}deg, ${color} 52%, rgba(255,255,255,0.95) 52%)`;
+
+const buildDispensedCapsule = (capsuleStyles, index, isAwakened) => {
+  if (isAwakened) {
+    return { color: AWAKENED_CAPSULE_COLOR, gradientAngle: 135, rotate: 0 };
+  }
+  if (index >= 0 && capsuleStyles[index]) {
+    const style = capsuleStyles[index];
+    return {
+      color: CAPSULE_COLORS[style.colorIdx],
+      gradientAngle: 130 + (index * 37) % 80,
+      rotate: style.rotate,
+    };
+  }
+  const colorIdx = Math.floor(Math.random() * CAPSULE_COLORS.length);
+  return { color: CAPSULE_COLORS[colorIdx], gradientAngle: 135, rotate: 0 };
+};
+
+const RoundCapsule = ({ color, gradientAngle = 135, size, style = {} }) => (
+  <div
+    style={{
+      width: size,
+      height: size,
+      borderRadius: '50%',
+      background: getCapsuleGradient(color, gradientAngle),
+      border: `3px solid ${POP_OUTLINE}`,
+      boxShadow: '4px 5px 0 rgba(45,52,54,0.18), inset -3px -3px 8px rgba(0,0,0,0.08)',
+      flexShrink: 0,
+      ...style,
+    }}
+  />
+);
+
+const OpenedCapsuleHalves = ({ color, size = 96 }) => {
+  const half = size / 2;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '18px', marginBottom: '18px', height: size }}>
+      <div style={{
+        width: half, height: size,
+        borderRadius: `${half}px 0 0 ${half}px`,
+        background: color,
+        border: `4px solid ${POP_OUTLINE}`,
+        borderRight: 'none',
+        boxShadow: '4px 4px 0 rgba(45,52,54,0.2)',
+        transform: 'rotate(-14deg) translateX(-4px)',
+      }} />
+      <div style={{
+        width: half, height: size,
+        borderRadius: `0 ${half}px ${half}px 0`,
+        background: 'rgba(255,255,255,0.95)',
+        border: `4px solid ${POP_OUTLINE}`,
+        borderLeft: 'none',
+        boxShadow: '4px 4px 0 rgba(45,52,54,0.2)',
+        transform: 'rotate(14deg) translateX(4px)',
+      }} />
+    </div>
+  );
+};
 
 const HANDLE_RING_BORDER = 36;
 const TURN_ARROW_SIZE = 54;
@@ -150,6 +211,7 @@ function App() {
   const [orderedPrizes, setOrderedPrizes] = useState([]); 
   const [commandInput, setCommandInput] = useState(''); 
   const [capsuleStyles, setCapsuleStyles] = useState([]);
+  const [dispensedCapsule, setDispensedCapsule] = useState(null);
   const [scale, setScale] = useState(1);
 
   const dialRef = useRef(null);
@@ -447,6 +509,8 @@ function App() {
       } else {
         prize = orderedPrizes[orderedPrizes.length - remainingCount];
       }
+      const dispensedIndex = remainingCount - 1;
+      setDispensedCapsule(buildDispensedCapsule(capsuleStyles, dispensedIndex, gachaStatus === 'awakened'));
       setCurrentPrize(prize);
       setRemainingCount(prev => prev - 1);
       setIsCapsuleVisible(true);
@@ -463,6 +527,7 @@ function App() {
 
   const nextGacha = () => {
     setCurrentPrize(null);
+    setDispensedCapsule(null);
     setIsCapsulePopped(false);
     setIsCapsuleVisible(false);
     setDialRotation(0);
@@ -728,7 +793,7 @@ function App() {
             }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <div style={{ background: '#0096c7', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '4px 10px', borderRadius: '8px 8px 0 0', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none' }}>100円玉</div>
-                <div style={{ background: '#fff', color: '#0096c7', fontSize: '20px', fontWeight: '900', padding: '2px 10px', borderRadius: '0 0 8px 8px', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none' }}>3 枚</div>
+                <div style={{ background: '#fff', color: '#0096c7', fontSize: '20px', fontWeight: '900', padding: '2px 10px', borderRadius: '0 0 8px 8px', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none' }}>2 枚</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <div style={{ background: '#ff3366', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '4px 10px', borderRadius: '8px 8px 0 0', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none' }}>10円玉</div>
@@ -842,14 +907,13 @@ function App() {
                 borderBottom: '2px solid rgba(255,255,255,0.25)', zIndex: 3, pointerEvents: 'none'
               }} />
 
-              {currentPrize && isCapsuleVisible && (
-                <div style={{
-                  width: '72px', height: '72px', borderRadius: '50%',
-                  background: gachaStatus === 'awakened' ? 'linear-gradient(135deg, #ffd700 50%, #fff 50%)' : 'linear-gradient(135deg, #ff3366 50%, rgba(255,255,255,0.95) 50%)',
-                  boxShadow: '4px 4px 0 rgba(45,52,54,0.35)',
-                  border: `3px solid ${POP_OUTLINE}`,
-                  zIndex: 2, animation: 'dropCapsule 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards'
-                }} />
+              {currentPrize && isCapsuleVisible && dispensedCapsule && (
+                <RoundCapsule
+                  color={dispensedCapsule.color}
+                  gradientAngle={dispensedCapsule.gradientAngle}
+                  size={72}
+                  style={{ zIndex: 2, animation: 'dropCapsule 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards' }}
+                />
               )}
             </div>
           </div>
@@ -875,24 +939,11 @@ function App() {
               <div className="smokeCloud" style={{ width: '160px', height: '160px', bottom: '-20px' }} />
             </div>
           )}
-          {isCapsulePopped && (
+          {isCapsulePopped && dispensedCapsule && (
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', animation: 'fadeIn 0.5s ease forwards' }}>
-              <div style={{ display: 'flex', gap: '20px', marginBottom: '18px' }}>
-                <div style={{
-                  width: '100px', height: '100px',
-                  background: gachaStatus === 'awakened' ? '#ffd700' : '#0096c7',
-                  borderRadius: '100px 0 0 100px', transform: 'rotate(-12deg)',
-                  border: `4px solid ${POP_OUTLINE}`, boxShadow: '5px 5px 0 rgba(45,52,54,0.25)'
-                }} />
-                <div style={{
-                  width: '100px', height: '100px', background: '#fff',
-                  borderRadius: '0 100px 100px 0', transform: 'rotate(12deg)',
-                  border: `4px solid ${POP_OUTLINE}`, borderLeft: 'none',
-                  boxShadow: '5px 5px 0 rgba(45,52,54,0.25)'
-                }} />
-              </div>
+              <OpenedCapsuleHalves color={dispensedCapsule.color} size={96} />
               <h1 style={{
-                fontSize: '52px', color: gachaStatus === 'awakened' ? '#ff007f' : '#0096c7',
+                fontSize: '52px', color: gachaStatus === 'awakened' ? '#ff007f' : dispensedCapsule.color,
                 margin: '8px 0', fontWeight: '900',
                 textShadow: `3px 3px 0 #fff, 4px 4px 0 ${POP_OUTLINE}`
               }}>
