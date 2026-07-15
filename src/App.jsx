@@ -213,26 +213,34 @@ function App() {
   const [capsuleStyles, setCapsuleStyles] = useState([]);
   const [dispensedCapsule, setDispensedCapsule] = useState(null);
   const [scale, setScale] = useState(1);
+  const [popupScale, setPopupScale] = useState(1);
 
   const dialRef = useRef(null);
   const gachaContainerRef = useRef(null);
+  const commandInputRef = useRef(null);
   const isDragging = useRef(false);
   const accumulatedRotation = useRef(0); 
   const lastAngle = useRef(0);
 
   // 画面リサイズ時にガチャ筐体がぴったり収まるようにスケール調整
   useEffect(() => {
-    const handleResize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const scaleW = w / (MACHINE_W + 20);
-      const scaleH = h / (MACHINE_H + 20);
-      const minScale = Math.min(scaleW, scaleH);
-      setScale(Math.min(1, minScale));
+    const updateScales = () => {
+      const vv = window.visualViewport;
+      const w = vv?.width ?? window.innerWidth;
+      const h = vv?.height ?? window.innerHeight;
+      const pad = 12;
+      const machineScale = Math.min(1, (w - pad * 2) / MACHINE_W, (h - pad * 2) / MACHINE_H);
+      const popupScale = Math.min(1, (w - pad * 2) / 520, (h - pad * 2) / 680);
+      setScale(machineScale);
+      setPopupScale(popupScale);
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    updateScales();
+    window.addEventListener('resize', updateScales);
+    window.visualViewport?.addEventListener('resize', updateScales);
+    return () => {
+      window.removeEventListener('resize', updateScales);
+      window.visualViewport?.removeEventListener('resize', updateScales);
+    };
   }, []);
 
   // 演出タイミングに合わせた効果音
@@ -341,30 +349,19 @@ function App() {
     }
   }, []);
 
-  // 【完全修復】隠しコマンドのタイピング入力をリアルタイムで裏監視する処理
+  // 隠しコマンド入力欄にフォーカス（スマホでキーボードを開く）
   useEffect(() => {
-    if (gachaStatus !== 'error' || !loadedConfig) return;
+    if (gachaStatus !== 'error') return;
+    const timer = setTimeout(() => commandInputRef.current?.focus(), 150);
+    return () => clearTimeout(timer);
+  }, [gachaStatus]);
 
-    const handleKeyDown = (e) => {
-      // 押されたキー文字を1つずつ結合していく
-      setCommandInput(prev => {
-        const nextInput = prev + e.key;
-        
-        // 設定された隠しコマンド（誕生日など）が含まれているか判定
-        if (nextInput.includes(loadedConfig.secretCommand)) {
-          setGachaStatus('awakened'); // 【覚醒モード起動】
-          setRemainingCount(1); // ラスト確定の黄金カプセルをドームに出現させる
-          return ''; // 入力バッファをクリア
-        }
-        
-        // 長くなりすぎないように最新の20文字だけ残す
-        return nextInput.slice(-20);
-      });
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gachaStatus, loadedConfig]);
+  const tryUnlockWithCommand = () => {
+    if (!loadedConfig || commandInput !== loadedConfig.secretCommand) return;
+    setGachaStatus('awakened');
+    setRemainingCount(1);
+    setCommandInput('');
+  };
 
   // 優しいランダム生成
   const generateGentleRandomSchedule = (rawPrizes) => {
@@ -535,6 +532,7 @@ function App() {
     // 【修復】サプライズが有効のときだけ、道中が終わった瞬間にエラー画面へ飛ばす
     if (remainingCount === 0 && gachaStatus === 'playing') {
       if (loadedConfig.isSecretEnabled) {
+        setCommandInput('');
         setGachaStatus('error'); // エラーロック画面へ
       } else {
         setGachaStatus('soldout'); // 通常モードならそのまま完売
@@ -547,7 +545,8 @@ function App() {
   // --- 画面A: 設定画面 ---
   if (screen === 'config') {
     return (
-      <div style={{ padding: '24px 16px', fontFamily: POP_FONT, maxWidth: '650px', margin: '0 auto', backgroundColor: '#fff9fc', color: POP_OUTLINE, boxSizing: 'border-box', border: `4px solid ${POP_OUTLINE}`, borderRadius: '20px', boxShadow: '6px 6px 0 #ffb3c6' }}>
+      <div style={{ minHeight: '100dvh', width: '100%', boxSizing: 'border-box', padding: '16px', overflowY: 'auto', background: '#fff0f6' }}>
+      <div style={{ padding: '20px 16px', fontFamily: POP_FONT, width: '100%', maxWidth: '650px', margin: '0 auto', backgroundColor: '#fff9fc', color: POP_OUTLINE, boxSizing: 'border-box', border: `4px solid ${POP_OUTLINE}`, borderRadius: '20px', boxShadow: '6px 6px 0 #ffb3c6' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px', borderBottom: `4px solid ${POP_OUTLINE}`, paddingBottom: '16px' }}>
           <h1 style={{ fontSize: '28px', margin: '0 0 8px 0', fontWeight: '900', color: '#0096c7', textShadow: '2px 2px 0 #fff' }}>Custom Gacha System</h1>
           <p style={{ margin: 0, fontSize: '15px', color: '#636e72', fontWeight: 'bold' }}>オリジナルガチャ作成・管理画面</p>
@@ -600,18 +599,79 @@ function App() {
           </div>
         )}
       </div>
+      </div>
     );
   }
 
   // --- 【システムエラー画面】 ---
   if (gachaStatus === 'error') {
     return (
-      <div style={{ width: '100vw', height: '100vh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '20px', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: 'clamp(32px, 8vw, 80px)', margin: '0 0 20px 0', borderBottom: '6px solid #ff3b30', paddingBottom: '10px', fontWeight: 'bold', textAlign: 'center' }}>⚠️ SYSTEM ERROR</h1>
-        <p style={{ fontSize: 'clamp(16px, 4vw, 32px)', textAlign: 'center', maxWidth: '900px', lineHeight: '1.6', background: '#000', padding: '20px 30px', borderRadius: '12px', border: '2px solid #444', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', wordBreak: 'break-all' }}>
+      <div style={{ width: '100%', minHeight: '100dvh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '20px 16px', boxSizing: 'border-box', overflowY: 'auto' }}>
+        <h1 style={{ fontSize: 'clamp(24px, 7vw, 80px)', margin: '0 0 16px 0', borderBottom: '6px solid #ff3b30', paddingBottom: '10px', fontWeight: 'bold', textAlign: 'center', lineHeight: 1.2 }}>⚠️ SYSTEM ERROR</h1>
+        <p style={{ fontSize: 'clamp(14px, 3.8vw, 32px)', textAlign: 'center', width: '100%', maxWidth: '900px', lineHeight: '1.6', background: '#000', padding: '16px 20px', borderRadius: '12px', border: '2px solid #444', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', wordBreak: 'break-word', boxSizing: 'border-box' }}>
           {loadedConfig.errorMsg}
         </p>
-        <p style={{ color: '#aaa', marginTop: '40px', fontSize: 'clamp(12px, 3vw, 20px)', letterSpacing: '1px', textAlign: 'center' }}>[管理者権限パスコードをキーボードで入力してください...]</p>
+        <p style={{ color: '#aaa', marginTop: '24px', fontSize: 'clamp(12px, 3.2vw, 18px)', letterSpacing: '0.5px', textAlign: 'center', lineHeight: 1.5, maxWidth: '420px' }}>
+          下の欄をタップしてパスコードを入力し、送信してください
+        </p>
+        <input
+          ref={commandInputRef}
+          type="text"
+          value={commandInput}
+          onChange={(e) => setCommandInput(e.target.value.slice(-40))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              tryUnlockWithCommand();
+            }
+          }}
+          enterKeyHint="go"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="パスコードを入力"
+          style={{
+            marginTop: '12px',
+            background: '#000',
+            border: '2px solid #555',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            width: '100%',
+            maxWidth: '360px',
+            fontSize: 'clamp(16px, 4.5vw, 28px)',
+            color: '#39ff14',
+            letterSpacing: '1px',
+            textAlign: 'center',
+            fontFamily: 'monospace',
+            boxShadow: 'inset 0 0 12px rgba(57,255,20,0.15)',
+            outline: 'none',
+            boxSizing: 'border-box',
+            caretColor: '#39ff14',
+          }}
+        />
+        <button
+          type="button"
+          onClick={tryUnlockWithCommand}
+          style={{
+            marginTop: '16px',
+            padding: '12px 32px',
+            fontSize: 'clamp(14px, 3.5vw, 18px)',
+            fontWeight: 'bold',
+            fontFamily: 'monospace',
+            background: '#ff3b30',
+            color: '#fff',
+            border: '2px solid #888',
+            borderRadius: '8px',
+            cursor: 'pointer',
+          }}
+        >
+          送信
+        </button>
+        <style>{`
+          input::placeholder { color: rgba(57, 255, 20, 0.35); letter-spacing: 1px; }
+        `}</style>
       </div>
     );
   }
@@ -637,50 +697,57 @@ function App() {
       }}
     >
       <div style={{
-        width: `${MACHINE_W}px`, height: `${MACHINE_H}px`,
-        display: 'flex', justifyContent: 'center', alignItems: 'center',
-        transform: `scale(${scale})`,
-        transformOrigin: 'center center',
-        flexShrink: 0
+        width: MACHINE_W * scale,
+        height: MACHINE_H * scale,
+        flexShrink: 0,
+        position: 'relative',
       }}>
+        <div style={{
+          width: `${MACHINE_W}px`,
+          height: `${MACHINE_H}px`,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+        }}>
         <div className={isBodyThumping ? 'bodyThump' : ''} style={{
-          width: `${MACHINE_W}px`, height: `${MACHINE_H}px`,
+          width: '100%', height: '100%',
           background: 'linear-gradient(180deg, #fffdf8 0%, #fff5f0 55%, #ffeef5 100%)',
           border: `5px solid ${POP_OUTLINE}`,
           borderRadius: '42px 42px 28px 28px',
           boxShadow: '0 28px 0 #ffb3c6, 0 48px 80px rgba(45,52,54,0.35), inset 0 12px 0 #fff',
           display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative',
           boxSizing: 'border-box', padding: '0 0 16px 0',
-          willChange: 'transform'
         }}>
 
         {/* ヘッダー */}
         <div style={{
-          width: '100%', height: '88px',
+          width: '100%', height: '88px', minHeight: '88px',
           background: 'linear-gradient(180deg, #ffffff 0%, #fff0f8 100%)',
           borderRadius: '38px 38px 0 0',
           borderBottom: `4px solid ${POP_OUTLINE}`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0 28px', boxSizing: 'border-box', position: 'relative', overflow: 'hidden'
+          padding: '0 20px', boxSizing: 'border-box', position: 'relative', overflow: 'hidden',
+          gap: '8px', flexShrink: 0,
         }}>
           <div style={{ position: 'absolute', top: '10px', left: '120px', fontSize: '18px', opacity: 0.35 }}>★</div>
           <div style={{ position: 'absolute', top: '18px', right: '130px', fontSize: '14px', opacity: 0.35 }}>✦</div>
           <div style={{
             background: 'linear-gradient(135deg, #ff3366, #ff6b6b)',
-            color: '#fff', fontWeight: '900', fontSize: '19px',
-            padding: '9px 18px', borderRadius: '20px',
+            color: '#fff', fontWeight: '900', fontSize: '17px',
+            padding: '8px 14px', borderRadius: '20px',
             border: `3px solid ${POP_OUTLINE}`,
             boxShadow: '3px 3px 0 rgba(45,52,54,0.25)',
-            letterSpacing: '0.5px'
+            letterSpacing: '0.5px', whiteSpace: 'nowrap', flexShrink: 0,
           }}>
             takusaki
           </div>
           <div style={{
             color: gachaStatus === 'awakened' ? '#ff007f' : '#0096c7',
-            fontWeight: '900', fontSize: '30px', fontStyle: 'italic',
+            fontWeight: '900', fontSize: gachaStatus === 'awakened' ? '22px' : '26px',
+            fontStyle: 'italic', lineHeight: 1.1, textAlign: 'right',
             textShadow: gachaStatus === 'awakened'
               ? '2px 2px 0 #fff, 3px 3px 0 #ff007f, -1px -1px 0 #fff'
-              : `2px 2px 0 #fff, 3px 3px 0 ${POP_OUTLINE}, -1px -1px 0 #fff`
+              : `2px 2px 0 #fff, 3px 3px 0 ${POP_OUTLINE}, -1px -1px 0 #fff`,
+            whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {gachaStatus === 'awakened' ? '20th Awakening' : 'Happy Birthday'}
           </div>
@@ -769,12 +836,13 @@ function App() {
           <div style={{
             position: 'absolute', top: '14px', right: '14px',
             background: gachaStatus === 'awakened' ? '#ff007f' : '#ff3366',
-            color: '#fff', padding: '6px 16px', borderRadius: '20px',
-            fontWeight: '900', fontSize: '15px',
+            color: '#fff', padding: '5px 12px', borderRadius: '20px',
+            fontWeight: '900', fontSize: '13px', lineHeight: 1.2,
             border: `3px solid ${POP_OUTLINE}`,
-            boxShadow: '3px 3px 0 rgba(45,52,54,0.2)', zIndex: 25
+            boxShadow: '3px 3px 0 rgba(45,52,54,0.2)', zIndex: 25,
+            whiteSpace: 'nowrap',
           }}>
-            {gachaStatus === 'soldout' ? 'OUT' : gachaStatus === 'awakened' ? 'LAST: 1個' : `残: ${remainingCount}個`}
+            {gachaStatus === 'soldout' ? 'SOLD OUT' : gachaStatus === 'awakened' ? 'LAST: 1個' : `残: ${remainingCount}個`}
           </div>
         </div>
 
@@ -785,23 +853,23 @@ function App() {
           display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
         }}>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', width: '100%', gap: '6px', flexWrap: 'nowrap' }}>
             <div style={{
-              display: 'flex', gap: '8px',
-              background: '#fff', padding: '6px 8px', borderRadius: '16px',
-              border: `3px solid ${POP_OUTLINE}`, boxShadow: '3px 3px 0 #bde0fe'
+              display: 'flex', gap: '6px',
+              background: '#fff', padding: '5px 6px', borderRadius: '16px',
+              border: `3px solid ${POP_OUTLINE}`, boxShadow: '3px 3px 0 #bde0fe', flexShrink: 0,
             }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <div style={{ background: '#0096c7', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '4px 10px', borderRadius: '8px 8px 0 0', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none' }}>100円玉</div>
-                <div style={{ background: '#fff', color: '#0096c7', fontSize: '20px', fontWeight: '900', padding: '2px 10px', borderRadius: '0 0 8px 8px', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none' }}>2 枚</div>
+                <div style={{ background: '#0096c7', color: '#fff', fontSize: '11px', fontWeight: '900', padding: '3px 8px', borderRadius: '8px 8px 0 0', minWidth: '52px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none', whiteSpace: 'nowrap', lineHeight: 1.3 }}>100円玉</div>
+                <div style={{ background: '#fff', color: '#0096c7', fontSize: '18px', fontWeight: '900', padding: '2px 8px', borderRadius: '0 0 8px 8px', minWidth: '52px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none', lineHeight: 1.2 }}>2 枚</div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <div style={{ background: '#ff3366', color: '#fff', fontSize: '12px', fontWeight: '900', padding: '4px 10px', borderRadius: '8px 8px 0 0', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none' }}>10円玉</div>
-                <div style={{ background: '#fff', color: '#ff3366', fontSize: '20px', fontWeight: '900', padding: '2px 10px', borderRadius: '0 0 8px 8px', width: '58px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none' }}>0 枚</div>
+                <div style={{ background: '#ff3366', color: '#fff', fontSize: '11px', fontWeight: '900', padding: '3px 8px', borderRadius: '8px 8px 0 0', minWidth: '52px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderBottom: 'none', whiteSpace: 'nowrap', lineHeight: 1.3 }}>10円玉</div>
+                <div style={{ background: '#fff', color: '#ff3366', fontSize: '18px', fontWeight: '900', padding: '2px 8px', borderRadius: '0 0 8px 8px', minWidth: '52px', textAlign: 'center', border: `2px solid ${POP_OUTLINE}`, borderTop: 'none', lineHeight: 1.2 }}>0 枚</div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
                 <span style={{ fontSize: '11px', fontWeight: '900', color: POP_OUTLINE }}>投入口</span>
                 <div style={{
@@ -884,9 +952,10 @@ function App() {
               </div>
             </div>
             <p style={{
-              fontSize: '13px', color: POP_OUTLINE, marginTop: '5px', fontWeight: '900',
-              background: '#fff', padding: '5px 14px', borderRadius: '14px',
-              border: `2px solid ${POP_OUTLINE}`, boxShadow: '2px 2px 0 #ffb3c6'
+              fontSize: '12px', color: POP_OUTLINE, marginTop: '5px', fontWeight: '900',
+              background: '#fff', padding: '6px 12px', borderRadius: '14px',
+              border: `2px solid ${POP_OUTLINE}`, boxShadow: '2px 2px 0 #ffb3c6',
+              lineHeight: 1.45, textAlign: 'center', maxWidth: '100%', boxSizing: 'border-box',
             }}>
               {isBodyThumping ? 'ガシャコン！演出中...' : gachaStatus === 'awakened' ? '⚡️ ラストワン賞を回して取り出してください！' : 'ハンドルを右方向にくるっと 1 周まわしてね'}
             </p>
@@ -919,20 +988,22 @@ function App() {
           </div>
 
         </div>
-      </div>
+        </div>
+        </div>
       </div>
 
       {/* --- 【景品ポップアップモーダル】 --- */}
       {currentPrize && isCapsuleVisible && !isBodyThumping && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100vw', height: '100vh',
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100dvh',
           background: 'rgba(255, 240, 248, 0.94)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 50,
           opacity: isCapsulePopped || isSmokeActive ? 1 : 0,
           pointerEvents: isCapsulePopped ? 'auto' : 'none',
-          transition: 'opacity 0.3s ease'
+          transition: 'opacity 0.3s ease',
+          padding: '16px', boxSizing: 'border-box', overflowY: 'auto',
         }}>
           {isSmokeActive && (
-            <div style={{ position: 'absolute', width: '400px', height: '400px', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 60 }}>
+            <div style={{ position: 'absolute', width: 'min(400px, 90vw)', height: 'min(400px, 90vw)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 60 }}>
               <div className="smokeCloud" style={{ width: '150px', height: '150px', left: '-50px' }} />
               <div className="smokeCloud" style={{ width: '180px', height: '180px', top: '-40px' }} />
               <div className="smokeCloud" style={{ width: '140px', height: '140px', right: '-40px' }} />
@@ -940,30 +1011,44 @@ function App() {
             </div>
           )}
           {isCapsulePopped && dispensedCapsule && (
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', animation: 'fadeIn 0.5s ease forwards' }}>
-              <OpenedCapsuleHalves color={dispensedCapsule.color} size={96} />
-              <h1 style={{
-                fontSize: '52px', color: gachaStatus === 'awakened' ? '#ff007f' : dispensedCapsule.color,
-                margin: '8px 0', fontWeight: '900',
-                textShadow: `3px 3px 0 #fff, 4px 4px 0 ${POP_OUTLINE}`
-              }}>
+            <div style={{
+              display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+              animation: 'fadeIn 0.5s ease forwards',
+              width: '100%', maxWidth: '520px',
+              transform: `scale(${popupScale})`,
+              transformOrigin: 'center center',
+            }}>
+              <OpenedCapsuleHalves color={dispensedCapsule.color} size={Math.round(72 + popupScale * 24)} />
+              <h1
+                className={`prize-popup-title${gachaStatus === 'awakened' ? ' prize-popup-title--long' : ''}`}
+                style={{
+                  color: gachaStatus === 'awakened' ? '#ff007f' : dispensedCapsule.color,
+                  textShadow: `3px 3px 0 #fff, 4px 4px 0 ${POP_OUTLINE}`,
+                }}
+              >
                 {gachaStatus === 'awakened' ? '✨ 20歳の誕生日おめでとう ✨' : '🎉 カプセルをあけました！'}
               </h1>
               <div style={{
-                background: '#fff', color: POP_OUTLINE, padding: '44px 72px', borderRadius: '28px',
-                fontSize: '48px', fontWeight: '900',
+                background: '#fff', color: POP_OUTLINE,
+                padding: 'clamp(20px, 5vw, 44px) clamp(16px, 5vw, 56px)',
+                borderRadius: '28px',
+                fontSize: 'clamp(22px, 6vw, 44px)', fontWeight: '900', lineHeight: 1.3,
                 border: gachaStatus === 'awakened' ? '5px solid #ff007f' : `5px solid ${POP_OUTLINE}`,
                 boxShadow: gachaStatus === 'awakened' ? '0 20px 0 #ffb3c6, 0 30px 50px rgba(255,0,127,0.25)' : '0 20px 0 #bde0fe, 0 30px 50px rgba(45,52,54,0.2)',
-                textAlign: 'center', maxWidth: '85%',
+                textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box',
+                wordBreak: 'break-word',
                 animation: 'scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
               }}>
                 {currentPrize}
               </div>
               <button onClick={nextGacha} style={{
-                marginTop: '40px', padding: '16px 52px', fontSize: '22px', fontWeight: '900',
+                marginTop: 'clamp(24px, 5vw, 40px)',
+                padding: 'clamp(12px, 3vw, 16px) clamp(28px, 8vw, 52px)',
+                fontSize: 'clamp(16px, 4vw, 22px)', fontWeight: '900',
                 background: gachaStatus === 'awakened' ? '#ff007f' : '#0096c7', color: '#fff',
                 border: `4px solid ${POP_OUTLINE}`, borderRadius: '20px', cursor: 'pointer',
-                boxShadow: '4px 4px 0 rgba(45,52,54,0.25)', fontFamily: POP_FONT
+                boxShadow: '4px 4px 0 rgba(45,52,54,0.25)', fontFamily: POP_FONT,
+                whiteSpace: 'nowrap',
               }}>
                 {gachaStatus === 'awakened' ? '全ての演出を終了する' : '次のカプセルへ ➔'}
               </button>
@@ -975,7 +1060,7 @@ function App() {
       {/* スタイルCSS */}
       <style>{`
         .bodyThump { animation: bodyThumpAnim 0.05s infinite alternate; }
-        @keyframes bodyThumpAnim { 0% { transform: translate(2px, 2px) rotate(0.2deg); } 100% { transform: translate(-2px, -2px) rotate(-0.2deg); } }
+        @keyframes bodyThumpAnim { 0% { transform: translate(2px, 0) rotate(0.2deg); } 100% { transform: translate(-2px, 0) rotate(-0.2deg); } }
         .smokeCloud { position: absolute; background: rgba(255, 220, 240, 0.9); border-radius: 50%; filter: blur(15px); animation: smokeExplode 0.6s ease-out forwards; opacity: 0; }
         @keyframes smokeExplode { 0% { transform: scale(0.2); opacity: 0; } 40% { opacity: 0.9; } 100% { transform: scale(2.2); opacity: 0; } }
         @keyframes guruguruGachaMutedA { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(55px, -42px) rotate(90deg); } 50% { transform: translate(-38px, -72px) rotate(180deg); } 75% { transform: translate(-55px, -28px) rotate(270deg); } 100% { transform: translate(0, 0) rotate(360deg); } }
@@ -992,6 +1077,28 @@ function App() {
         @keyframes dropCapsule { 0% { transform: translateY(-70px) scale(0.3); opacity: 0; } 50% { transform: translateY(0) scale(1.1); } 75% { transform: translateY(-8px) scale(1); } 100% { transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .prize-popup-title {
+          margin: 8px 0;
+          font-weight: 900;
+          line-height: 1.15;
+          text-align: center;
+          white-space: nowrap;
+          width: max-content;
+          max-width: 100%;
+          font-size: clamp(30px, 3.2vw, 44px);
+        }
+        .prize-popup-title--long {
+          font-size: clamp(24px, 2.6vw, 36px);
+        }
+        @media (max-width: 768px) {
+          .prize-popup-title {
+            width: 100%;
+            font-size: clamp(22px, 7vw, 40px);
+          }
+          .prize-popup-title--long {
+            font-size: clamp(17px, 5.4vw, 30px);
+          }
+        }
       `}</style>
     </div>
   );
