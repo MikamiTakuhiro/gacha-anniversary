@@ -1,5 +1,67 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { unlockAudio, playMachineRattle, playSmokeSound, playCapsulePop } from './gachaSounds';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  unlockAudio,
+  playMachineRattle,
+  playSmokeSound,
+  playCapsulePop,
+  playAwakeningFanfare,
+  playGearClick,
+  playAwakenedCapsulePop,
+  playSoldoutChime,
+  playRevealSuspense,
+  playEggWobbleTick,
+} from './gachaSounds';
+
+const CONFETTI_COLORS_NORMAL = ['#ff3366', '#00d4aa', '#4dabff', '#ffb703', '#b967ff', '#ff6b35', '#fff'];
+const CONFETTI_COLORS_AWAKENED = ['#ffd700', '#ff007f', '#fff0f6', '#ff69b4', '#ffe066', '#fff'];
+
+const ConfettiBurst = ({ awakened = false, count = 28 }) => {
+  const pieces = useMemo(() => {
+    const colors = awakened ? CONFETTI_COLORS_AWAKENED : CONFETTI_COLORS_NORMAL;
+    return Array.from({ length: count }, (_, i) => ({
+      id: i,
+      left: `${8 + Math.random() * 84}%`,
+      delay: `${Math.random() * 0.35}s`,
+      duration: `${1.4 + Math.random() * 1.1}s`,
+      color: colors[i % colors.length],
+      size: 6 + Math.floor(Math.random() * 8),
+      rotate: Math.floor(Math.random() * 360),
+      drift: `${(Math.random() - 0.5) * 120}px`,
+      shape: i % 3 === 0 ? 'circle' : 'rect',
+    }));
+  }, [awakened, count]);
+
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        inset: 0,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+        zIndex: 55,
+      }}
+    >
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          className="confetti-piece"
+          style={{
+            left: p.left,
+            width: p.shape === 'circle' ? p.size : p.size * 0.55,
+            height: p.size,
+            background: p.color,
+            borderRadius: p.shape === 'circle' ? '50%' : '2px',
+            animationDelay: p.delay,
+            animationDuration: p.duration,
+            '--confetti-drift': p.drift,
+            '--confetti-rotate': `${p.rotate}deg`,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const MACHINE_W = 540;
 const MACHINE_H = 920;
@@ -67,6 +129,45 @@ const OpenedCapsuleHalves = ({ color, size = 96 }) => {
         boxShadow: '4px 4px 0 rgba(45,52,54,0.2)',
         transform: 'rotate(14deg) translateX(4px)',
       }} />
+    </div>
+  );
+};
+
+const SplittingCapsule = ({ color, size = 96, isOpening }) => {
+  const half = size / 2;
+  return (
+    <div
+      className={isOpening ? 'capsule-split-stage--open' : 'capsule-split-stage'}
+      style={{ position: 'relative', width: size, height: size, marginBottom: '18px' }}
+    >
+      <div
+        className="capsule-split-half capsule-split-half--left"
+        style={{
+          position: 'absolute', left: 0, top: 0,
+          width: half, height: size,
+          borderRadius: `${half}px 0 0 ${half}px`,
+          background: color,
+          border: `4px solid ${POP_OUTLINE}`,
+          borderRight: `2px solid ${POP_OUTLINE}`,
+          boxSizing: 'border-box',
+          boxShadow: '4px 4px 0 rgba(45,52,54,0.2)',
+          transformOrigin: 'right center',
+        }}
+      />
+      <div
+        className="capsule-split-half capsule-split-half--right"
+        style={{
+          position: 'absolute', right: 0, top: 0,
+          width: half, height: size,
+          borderRadius: `0 ${half}px ${half}px 0`,
+          background: 'rgba(255,255,255,0.95)',
+          border: `4px solid ${POP_OUTLINE}`,
+          borderLeft: 'none',
+          boxSizing: 'border-box',
+          boxShadow: '4px 4px 0 rgba(45,52,54,0.2)',
+          transformOrigin: 'left center',
+        }}
+      />
     </div>
   );
 };
@@ -214,6 +315,11 @@ function App() {
   const [dispensedCapsule, setDispensedCapsule] = useState(null);
   const [scale, setScale] = useState(1);
   const [popupScale, setPopupScale] = useState(1);
+  const [isAwakeningFx, setIsAwakeningFx] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [isSoldoutReveal, setIsSoldoutReveal] = useState(false);
+  const [revealPhase, setRevealPhase] = useState(null);
+  const [isDispenseZoom, setIsDispenseZoom] = useState(false);
 
   const dialRef = useRef(null);
   const gachaContainerRef = useRef(null);
@@ -221,6 +327,10 @@ function App() {
   const isDragging = useRef(false);
   const accumulatedRotation = useRef(0); 
   const lastAngle = useRef(0);
+  const lastGearAngle = useRef(0);
+  const awakeningTimerRef = useRef(null);
+  const revealTimersRef = useRef([]);
+  const wobbleSoundRef = useRef(null);
 
   // 画面リサイズ時にガチャ筐体がぴったり収まるようにスケール調整
   useEffect(() => {
@@ -255,9 +365,53 @@ function App() {
   }, [isSmokeActive]);
 
   useEffect(() => {
+    if (revealPhase !== 'zoom') return;
+    return playRevealSuspense();
+  }, [revealPhase]);
+
+  useEffect(() => {
+    if (revealPhase !== 'wobble') return;
+    let count = 0;
+    const tick = () => {
+      playEggWobbleTick(count);
+      count += 1;
+      if (count < 9) {
+        wobbleSoundRef.current = setTimeout(tick, 170 + count * 8);
+      }
+    };
+    wobbleSoundRef.current = setTimeout(tick, 520);
+    return () => {
+      if (wobbleSoundRef.current) clearTimeout(wobbleSoundRef.current);
+    };
+  }, [revealPhase]);
+
+  useEffect(() => {
     if (!isCapsulePopped) return;
-    playCapsulePop();
-  }, [isCapsulePopped]);
+    if (gachaStatus === 'awakened') {
+      playAwakenedCapsulePop();
+    } else {
+      playCapsulePop();
+    }
+    setShowConfetti(true);
+    const hide = setTimeout(() => setShowConfetti(false), gachaStatus === 'awakened' ? 3200 : 2200);
+    return () => clearTimeout(hide);
+  }, [isCapsulePopped, gachaStatus]);
+
+  useEffect(() => () => {
+    if (awakeningTimerRef.current) clearTimeout(awakeningTimerRef.current);
+    revealTimersRef.current.forEach(clearTimeout);
+    if (wobbleSoundRef.current) clearTimeout(wobbleSoundRef.current);
+  }, []);
+
+  const clearRevealTimers = () => {
+    revealTimersRef.current.forEach(clearTimeout);
+    revealTimersRef.current = [];
+  };
+
+  const scheduleReveal = (fn, delay) => {
+    const id = setTimeout(fn, delay);
+    revealTimersRef.current.push(id);
+  };
 
   // スマホでページがスクロール・バウンスしないよう固定
   useEffect(() => {
@@ -357,10 +511,25 @@ function App() {
   }, [gachaStatus]);
 
   const tryUnlockWithCommand = () => {
-    if (!loadedConfig || commandInput !== loadedConfig.secretCommand) return;
-    setGachaStatus('awakened');
-    setRemainingCount(1);
+    if (!loadedConfig || commandInput !== loadedConfig.secretCommand || isAwakeningFx) return;
+    unlockAudio();
     setCommandInput('');
+    setIsAwakeningFx(true);
+    playAwakeningFanfare();
+    if (awakeningTimerRef.current) clearTimeout(awakeningTimerRef.current);
+    awakeningTimerRef.current = setTimeout(() => {
+      setGachaStatus('awakened');
+      setRemainingCount(1);
+      setIsAwakeningFx(false);
+      awakeningTimerRef.current = null;
+    }, 2400);
+  };
+
+  const noteGearAndShake = (nextAccumulated) => {
+    if (nextAccumulated - lastGearAngle.current >= 28) {
+      lastGearAngle.current = nextAccumulated;
+      playGearClick();
+    }
   };
 
   // 優しいランダム生成
@@ -418,11 +587,12 @@ function App() {
   };
 
   const handleMouseDown = (e) => {
-    if (currentPrize || isBodyThumping || gachaStatus === 'error' || gachaStatus === 'soldout') return;
+    if (currentPrize || isBodyThumping || isAwakeningFx || gachaStatus === 'error' || gachaStatus === 'soldout') return;
     unlockAudio();
     isDragging.current = true;
     lastAngle.current = getAngle(e.clientX, e.clientY);
     accumulatedRotation.current = 0;
+    lastGearAngle.current = 0;
     setIsShaking(true);
   };
 
@@ -436,6 +606,7 @@ function App() {
     if (diff > 0) {
       accumulatedRotation.current += diff;
       setDialRotation(prev => prev + diff);
+      noteGearAndShake(accumulatedRotation.current);
     }
     lastAngle.current = currentAngle;
 
@@ -455,13 +626,14 @@ function App() {
   };
 
   const handleTouchStart = (e) => {
-    if (currentPrize || isBodyThumping || gachaStatus === 'error' || gachaStatus === 'soldout') return;
+    if (currentPrize || isBodyThumping || isAwakeningFx || gachaStatus === 'error' || gachaStatus === 'soldout') return;
     if (e.cancelable) e.preventDefault();
     unlockAudio();
     isDragging.current = true;
     const touch = e.touches[0];
     lastAngle.current = getAngle(touch.clientX, touch.clientY);
     accumulatedRotation.current = 0;
+    lastGearAngle.current = 0;
     setIsShaking(true);
   };
 
@@ -477,6 +649,7 @@ function App() {
     if (diff > 0) {
       accumulatedRotation.current += diff;
       setDialRotation(prev => prev + diff);
+      noteGearAndShake(accumulatedRotation.current);
     }
     lastAngle.current = currentAngle;
 
@@ -496,12 +669,13 @@ function App() {
   };
 
   const startSequenceAfterTurn = () => {
+    clearRevealTimers();
+    setIsDispenseZoom(true);
     setIsBodyThumping(true);
     setTimeout(() => {
       setIsBodyThumping(false);
       let prize = '';
       if (gachaStatus === 'awakened') {
-        // 覚醒モード時は、設定画面で入れた最後の「超豪華メインギフト」を確定で排出
         prize = loadedConfig.prizes[loadedConfig.prizes.length - 1];
       } else {
         prize = orderedPrizes[orderedPrizes.length - remainingCount];
@@ -511,22 +685,29 @@ function App() {
       setCurrentPrize(prize);
       setRemainingCount(prev => prev - 1);
       setIsCapsuleVisible(true);
+      setRevealPhase('zoom');
 
-      setTimeout(() => {
-        setIsSmokeActive(true);
-        setTimeout(() => {
-          setIsCapsulePopped(true);
-          setIsSmokeActive(false);
-        }, 600);
-      }, 1200);
+      scheduleReveal(() => setRevealPhase('wobble'), 700);
+      scheduleReveal(() => setRevealPhase('opening'), 2400);
+      scheduleReveal(() => {
+        setRevealPhase(null);
+        setIsDispenseZoom(false);
+        setIsCapsulePopped(true);
+      }, 2900);
     }, 800);
   };
 
   const nextGacha = () => {
+    clearRevealTimers();
+    if (wobbleSoundRef.current) clearTimeout(wobbleSoundRef.current);
     setCurrentPrize(null);
     setDispensedCapsule(null);
     setIsCapsulePopped(false);
     setIsCapsuleVisible(false);
+    setRevealPhase(null);
+    setIsDispenseZoom(false);
+    setIsSmokeActive(false);
+    setShowConfetti(false);
     setDialRotation(0);
     
     // 【修復】サプライズが有効のときだけ、道中が終わった瞬間にエラー画面へ飛ばす
@@ -535,10 +716,14 @@ function App() {
         setCommandInput('');
         setGachaStatus('error'); // エラーロック画面へ
       } else {
-        setGachaStatus('soldout'); // 通常モードならそのまま完売
+        setGachaStatus('soldout');
+        setIsSoldoutReveal(true);
+        playSoldoutChime();
       }
     } else if (remainingCount === 0 && gachaStatus === 'awakened') {
-      setGachaStatus('soldout'); // 覚醒後のラストを引いたらフィナーレ
+      setGachaStatus('soldout');
+      setIsSoldoutReveal(true);
+      playSoldoutChime();
     }
   };
 
@@ -606,7 +791,7 @@ function App() {
   // --- 【システムエラー画面】 ---
   if (gachaStatus === 'error') {
     return (
-      <div style={{ width: '100%', minHeight: '100dvh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '20px 16px', boxSizing: 'border-box', overflowY: 'auto' }}>
+      <div style={{ width: '100%', minHeight: '100dvh', background: '#1c1e22', color: '#ff3b30', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', fontFamily: 'monospace', padding: '20px 16px', boxSizing: 'border-box', overflowY: 'auto', position: 'relative' }}>
         <h1 style={{ fontSize: 'clamp(24px, 7vw, 80px)', margin: '0 0 16px 0', borderBottom: '6px solid #ff3b30', paddingBottom: '10px', fontWeight: 'bold', textAlign: 'center', lineHeight: 1.2 }}>⚠️ SYSTEM ERROR</h1>
         <p style={{ fontSize: 'clamp(14px, 3.8vw, 32px)', textAlign: 'center', width: '100%', maxWidth: '900px', lineHeight: '1.6', background: '#000', padding: '16px 20px', borderRadius: '12px', border: '2px solid #444', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', wordBreak: 'break-word', boxSizing: 'border-box' }}>
           {loadedConfig.errorMsg}
@@ -632,6 +817,7 @@ function App() {
           autoCapitalize="none"
           spellCheck={false}
           placeholder="パスコードを入力"
+          disabled={isAwakeningFx}
           style={{
             marginTop: '12px',
             background: '#000',
@@ -649,11 +835,13 @@ function App() {
             outline: 'none',
             boxSizing: 'border-box',
             caretColor: '#39ff14',
+            opacity: isAwakeningFx ? 0.5 : 1,
           }}
         />
         <button
           type="button"
           onClick={tryUnlockWithCommand}
+          disabled={isAwakeningFx}
           style={{
             marginTop: '16px',
             padding: '12px 32px',
@@ -664,13 +852,88 @@ function App() {
             color: '#fff',
             border: '2px solid #888',
             borderRadius: '8px',
-            cursor: 'pointer',
+            cursor: isAwakeningFx ? 'not-allowed' : 'pointer',
+            opacity: isAwakeningFx ? 0.5 : 1,
           }}
         >
           送信
         </button>
+        {isAwakeningFx && (
+          <div
+            className="awakening-fx-overlay"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 100,
+              pointerEvents: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+            }}
+          >
+            <div className="awakening-fx-flash" />
+            <div className="awakening-fx-wipe" />
+            <div className="awakening-fx-title-wrap">
+              <div className="awakening-fx-title">20th Awakening</div>
+              <div className="awakening-fx-sub">LAST ONE UNLOCKED</div>
+            </div>
+          </div>
+        )}
         <style>{`
           input::placeholder { color: rgba(57, 255, 20, 0.35); letter-spacing: 1px; }
+          .awakening-fx-flash {
+            position: absolute; inset: 0;
+            background: #fff;
+            animation: awakeningFlash 0.55s ease-out forwards;
+            pointer-events: none;
+          }
+          .awakening-fx-wipe {
+            position: absolute; inset: 0;
+            background: linear-gradient(135deg, #ff007f 0%, #ff69b4 40%, #ffd700 100%);
+            animation: awakeningWipe 2.2s ease-in-out forwards;
+            pointer-events: none;
+          }
+          .awakening-fx-title-wrap {
+            position: relative; z-index: 2;
+            text-align: center;
+            animation: awakeningTitleIn 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.35s both;
+            pointer-events: none;
+            padding: 0 16px;
+          }
+          .awakening-fx-title {
+            font-family: ${POP_FONT};
+            font-size: clamp(36px, 10vw, 72px);
+            font-weight: 900;
+            font-style: italic;
+            color: #fff;
+            text-shadow: 0 0 24px rgba(255,215,0,0.85), 3px 3px 0 #ff007f, -1px -1px 0 #fff;
+            letter-spacing: 1px;
+            line-height: 1.15;
+          }
+          .awakening-fx-sub {
+            margin-top: 14px;
+            font-family: ${POP_FONT};
+            font-size: clamp(14px, 3.8vw, 22px);
+            font-weight: 900;
+            color: #ffd700;
+            letter-spacing: 3px;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+          }
+          @keyframes awakeningFlash {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+          @keyframes awakeningWipe {
+            0% { opacity: 0; transform: scale(1.08); }
+            18% { opacity: 1; transform: scale(1); }
+            75% { opacity: 1; }
+            100% { opacity: 0.92; }
+          }
+          @keyframes awakeningTitleIn {
+            0% { opacity: 0; transform: scale(0.55) translateY(20px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+          }
         `}</style>
       </div>
     );
@@ -702,12 +965,15 @@ function App() {
         flexShrink: 0,
         position: 'relative',
       }}>
-        <div style={{
-          width: `${MACHINE_W}px`,
-          height: `${MACHINE_H}px`,
-          transform: `scale(${scale})`,
-          transformOrigin: 'top left',
-        }}>
+        <div
+          style={{
+            width: `${MACHINE_W}px`,
+            height: `${MACHINE_H}px`,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+        >
+        <div className={isDispenseZoom ? 'machine-dispense-zoom-inner' : ''} style={{ width: '100%', height: '100%' }}>
         <div className={isBodyThumping ? 'bodyThump' : ''} style={{
           width: '100%', height: '100%',
           background: 'linear-gradient(180deg, #fffdf8 0%, #fff5f0 55%, #ffeef5 100%)',
@@ -770,6 +1036,16 @@ function App() {
             background: 'radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.85) 0%, transparent 70%)',
             pointerEvents: 'none', zIndex: 4
           }} />
+          {gachaStatus === 'awakened' && remainingCount > 0 && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 2,
+                background: 'radial-gradient(circle at 50% 70%, rgba(255,215,0,0.28) 0%, rgba(255,0,127,0.12) 42%, transparent 70%)',
+                animation: 'domeAwakenGlow 2s ease-in-out infinite alternate',
+              }}
+            />
+          )}
           {/* 床の影 */}
           <div style={{
             position: 'absolute', bottom: 0, left: 0, width: '100%', height: '28%',
@@ -783,24 +1059,33 @@ function App() {
 
           <div style={{ width: '100%', height: '100%', position: 'relative', zIndex: 3 }}>
             {gachaStatus === 'soldout' && (
-              <div style={{
-                position: 'absolute', top: '38%', width: '100%', textAlign: 'center',
-                fontSize: '56px', color: '#ff3366', fontWeight: '900',
-                transform: 'rotate(-6deg)', zIndex: 20,
-                textShadow: `4px 4px 0 #fff, 5px 5px 0 ${POP_OUTLINE}`,
-                WebkitTextStroke: `2px ${POP_OUTLINE}`
-              }}>完 売</div>
+              <div
+                className={isSoldoutReveal ? 'soldout-reveal' : ''}
+                style={{
+                  position: 'absolute', top: '38%', width: '100%', textAlign: 'center',
+                  fontSize: '56px', color: '#ff3366', fontWeight: '900',
+                  transform: 'rotate(-6deg)', zIndex: 20,
+                  textShadow: `4px 4px 0 #fff, 5px 5px 0 ${POP_OUTLINE}`,
+                  WebkitTextStroke: `2px ${POP_OUTLINE}`,
+                }}
+              >完 売</div>
             )}
 
             {gachaStatus === 'awakened' && remainingCount > 0 && !currentPrize && (
-              <div style={{
-                position: 'absolute', bottom: '40px', left: '50%', transform: 'translateX(-50%)',
-                width: '100px', height: '100px', borderRadius: '50%',
-                background: 'linear-gradient(135deg, #ffd700 50%, #fff 50%)',
-                boxShadow: '0 0 40px #ffd700, 4px 4px 0 rgba(45,52,54,0.3)',
-                border: `3px solid ${POP_OUTLINE}`, zIndex: 10,
-                animation: isShaking ? 'gashagasha 0.05s infinite' : 'none'
-              }} />
+              <div
+                className="awakened-capsule-glow"
+                style={{
+                  position: 'absolute', bottom: '40px', left: '50%',
+                  width: '100px', height: '100px', borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #ffd700 50%, #fff 50%)',
+                  border: `3px solid ${POP_OUTLINE}`, zIndex: 10,
+                  transform: 'translateX(-50%)',
+                  transformOrigin: 'center center',
+                  animation: isShaking
+                    ? 'gashagashaAwakened 0.05s infinite'
+                    : 'awakenedCapsulePulse 1.15s ease-in-out infinite',
+                }}
+              />
             )}
 
             {gachaStatus === 'playing' && !currentPrize && capsuleStyles.map((style, i) => {
@@ -823,7 +1108,7 @@ function App() {
                     boxShadow: '4px 5px 0 rgba(45,52,54,0.18), inset -3px -3px 8px rgba(0,0,0,0.08)',
                     border: `3px solid ${POP_OUTLINE}`,
                     animation: capAnim,
-                    animationDelay: isShaking || isBodyThumping ? style.delay : style.delay,
+                    animationDelay: style.delay,
                     transformOrigin: 'center center',
                     '--cap-scale': style.scale,
                     '--cap-rotate': style.rotate,
@@ -933,7 +1218,7 @@ function App() {
                   width: '100%', height: '100%', borderRadius: '50%',
                   transform: `rotate(${dialRotation}deg)`,
                   transition: isDragging.current ? 'none' : 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                  cursor: (gachaStatus === 'error' || gachaStatus === 'soldout' || isBodyThumping) ? 'not-allowed' : 'grab',
+                  cursor: (gachaStatus === 'error' || gachaStatus === 'soldout' || isBodyThumping || isAwakeningFx) ? 'not-allowed' : 'grab',
                   display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2,
                   touchAction: 'none',
                 }}
@@ -976,7 +1261,7 @@ function App() {
                 borderBottom: '2px solid rgba(255,255,255,0.25)', zIndex: 3, pointerEvents: 'none'
               }} />
 
-              {currentPrize && isCapsuleVisible && dispensedCapsule && (
+              {currentPrize && isCapsuleVisible && dispensedCapsule && revealPhase !== 'wobble' && revealPhase !== 'opening' && (
                 <RoundCapsule
                   color={dispensedCapsule.color}
                   gradientAngle={dispensedCapsule.gradientAngle}
@@ -991,36 +1276,77 @@ function App() {
         </div>
         </div>
       </div>
+      </div>
 
       {/* --- 【景品ポップアップモーダル】 --- */}
       {currentPrize && isCapsuleVisible && !isBodyThumping && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100dvh',
-          background: 'rgba(255, 240, 248, 0.94)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 50,
-          opacity: isCapsulePopped || isSmokeActive ? 1 : 0,
-          pointerEvents: isCapsulePopped ? 'auto' : 'none',
-          transition: 'opacity 0.3s ease',
-          padding: '16px', boxSizing: 'border-box', overflowY: 'auto',
-        }}>
-          {isSmokeActive && (
-            <div style={{ position: 'absolute', width: 'min(400px, 90vw)', height: 'min(400px, 90vw)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 60 }}>
-              <div className="smokeCloud" style={{ width: '150px', height: '150px', left: '-50px' }} />
-              <div className="smokeCloud" style={{ width: '180px', height: '180px', top: '-40px' }} />
-              <div className="smokeCloud" style={{ width: '140px', height: '140px', right: '-40px' }} />
-              <div className="smokeCloud" style={{ width: '160px', height: '160px', bottom: '-20px' }} />
+        <div
+          className={`reveal-modal${revealPhase === 'zoom' ? ' reveal-modal--zoom' : ''}${revealPhase === 'wobble' || revealPhase === 'opening' ? ' reveal-modal--hatch' : ''}`}
+          style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100dvh',
+            background: revealPhase === 'zoom'
+              ? 'rgba(12, 8, 24, 0.45)'
+              : 'rgba(255, 240, 248, 0.94)',
+            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 50,
+            opacity: revealPhase || isCapsulePopped ? 1 : 0,
+            pointerEvents: isCapsulePopped ? 'auto' : 'none',
+            transition: revealPhase === 'zoom' ? 'opacity 0.35s ease, background 0.5s ease' : 'opacity 0.3s ease, background 0.4s ease',
+            padding: '16px', boxSizing: 'border-box', overflowY: 'auto',
+          }}
+        >
+          {revealPhase === 'zoom' && (
+            <div className="reveal-vignette" aria-hidden="true" />
+          )}
+
+          {(revealPhase === 'wobble' || revealPhase === 'opening') && dispensedCapsule && (
+            <div
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                transform: `scale(${popupScale})`,
+                transformOrigin: 'center center',
+                position: 'relative', zIndex: 56,
+              }}
+            >
+              {revealPhase === 'wobble' && (
+                <RoundCapsule
+                  color={dispensedCapsule.color}
+                  gradientAngle={dispensedCapsule.gradientAngle}
+                  size={Math.round(88 + popupScale * 16)}
+                  style={{ animation: 'capsuleMoveToCenter 0.55s ease-out forwards, capsuleEggWobble 0.13s ease-in-out 0.55s infinite' }}
+                />
+              )}
+              {revealPhase === 'opening' && (
+                <SplittingCapsule
+                  color={dispensedCapsule.color}
+                  size={Math.round(88 + popupScale * 16)}
+                  isOpening
+                />
+              )}
             </div>
+          )}
+
+          {showConfetti && isCapsulePopped && (
+            <ConfettiBurst
+              awakened={gachaStatus === 'awakened'}
+              count={gachaStatus === 'awakened' ? 42 : 28}
+            />
           )}
           {isCapsulePopped && dispensedCapsule && (
             <div style={{
               display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-              animation: 'fadeIn 0.5s ease forwards',
+              animation: gachaStatus === 'awakened' ? 'fadeIn 0.7s ease forwards' : 'fadeIn 0.5s ease forwards',
               width: '100%', maxWidth: '520px',
               transform: `scale(${popupScale})`,
               transformOrigin: 'center center',
+              position: 'relative',
+              zIndex: 56,
             }}>
-              <OpenedCapsuleHalves color={dispensedCapsule.color} size={Math.round(72 + popupScale * 24)} />
+              <div
+                className={`prize-rays${gachaStatus === 'awakened' ? ' prize-rays--awakened' : ''}`}
+                aria-hidden="true"
+              />
               <h1
-                className={`prize-popup-title${gachaStatus === 'awakened' ? ' prize-popup-title--long' : ''}`}
+                className={`prize-popup-title${gachaStatus === 'awakened' ? ' prize-popup-title--long prize-popup-title--awakened' : ''}`}
                 style={{
                   color: gachaStatus === 'awakened' ? '#ff007f' : dispensedCapsule.color,
                   textShadow: `3px 3px 0 #fff, 4px 4px 0 ${POP_OUTLINE}`,
@@ -1028,17 +1354,24 @@ function App() {
               >
                 {gachaStatus === 'awakened' ? '✨ 20歳の誕生日おめでとう ✨' : '🎉 カプセルをあけました！'}
               </h1>
-              <div style={{
-                background: '#fff', color: POP_OUTLINE,
-                padding: 'clamp(20px, 5vw, 44px) clamp(16px, 5vw, 56px)',
-                borderRadius: '28px',
-                fontSize: 'clamp(22px, 6vw, 44px)', fontWeight: '900', lineHeight: 1.3,
-                border: gachaStatus === 'awakened' ? '5px solid #ff007f' : `5px solid ${POP_OUTLINE}`,
-                boxShadow: gachaStatus === 'awakened' ? '0 20px 0 #ffb3c6, 0 30px 50px rgba(255,0,127,0.25)' : '0 20px 0 #bde0fe, 0 30px 50px rgba(45,52,54,0.2)',
-                textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box',
-                wordBreak: 'break-word',
-                animation: 'scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-              }}>
+              <div
+                className={`prize-card-glow${gachaStatus === 'awakened' ? ' prize-card-glow--awakened' : ''}`}
+                style={{
+                  background: '#fff', color: POP_OUTLINE,
+                  padding: 'clamp(20px, 5vw, 44px) clamp(16px, 5vw, 56px)',
+                  borderRadius: '28px',
+                  fontSize: 'clamp(22px, 6vw, 44px)', fontWeight: '900', lineHeight: 1.3,
+                  border: gachaStatus === 'awakened' ? '5px solid #ff007f' : `5px solid ${POP_OUTLINE}`,
+                  boxShadow: gachaStatus === 'awakened' ? '0 20px 0 #ffb3c6, 0 30px 50px rgba(255,0,127,0.25)' : '0 20px 0 #bde0fe, 0 30px 50px rgba(45,52,54,0.2)',
+                  textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box',
+                  wordBreak: 'break-word',
+                  ...(gachaStatus !== 'awakened'
+                    ? { animation: 'scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }
+                    : {}),
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
                 {currentPrize}
               </div>
               <button onClick={nextGacha} style={{
@@ -1049,6 +1382,8 @@ function App() {
                 border: `4px solid ${POP_OUTLINE}`, borderRadius: '20px', cursor: 'pointer',
                 boxShadow: '4px 4px 0 rgba(45,52,54,0.25)', fontFamily: POP_FONT,
                 whiteSpace: 'nowrap',
+                position: 'relative',
+                zIndex: 1,
               }}>
                 {gachaStatus === 'awakened' ? '全ての演出を終了する' : '次のカプセルへ ➔'}
               </button>
@@ -1061,6 +1396,60 @@ function App() {
       <style>{`
         .bodyThump { animation: bodyThumpAnim 0.05s infinite alternate; }
         @keyframes bodyThumpAnim { 0% { transform: translate(2px, 0) rotate(0.2deg); } 100% { transform: translate(-2px, 0) rotate(-0.2deg); } }
+        .machine-dispense-zoom-inner {
+          animation: machineDispenseZoom 1.5s ease-in-out forwards;
+          transform-origin: center 38%;
+          will-change: transform;
+        }
+        @keyframes machineDispenseZoom {
+          0% { transform: scale(1); }
+          50% { transform: scale(1.07); }
+          100% { transform: scale(1.035); }
+        }
+        .reveal-vignette {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: radial-gradient(circle at 50% 42%, transparent 8%, rgba(0,0,0,0.55) 72%);
+          animation: revealVignetteClose 1.1s ease-in forwards;
+        }
+        @keyframes revealVignetteClose {
+          0% { opacity: 0; transform: scale(1.12); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes capsuleMoveToCenter {
+          0% { transform: translateY(48px) scale(0.55); opacity: 0.5; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes capsuleEggWobble {
+          0%, 100% { transform: rotate(0deg) translateX(0); }
+          15% { transform: rotate(-5deg) translateX(-4px); }
+          30% { transform: rotate(5deg) translateX(4px); }
+          45% { transform: rotate(-4deg) translateX(-3px); }
+          60% { transform: rotate(4deg) translateX(3px); }
+          75% { transform: rotate(-3deg) translateX(-2px); }
+          90% { transform: rotate(3deg) translateX(2px); }
+        }
+        .capsule-split-stage--open .capsule-split-half--left {
+          animation: capsuleHalfLeftOpen 0.52s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+        }
+        .capsule-split-stage--open .capsule-split-half--right {
+          animation: capsuleHalfRightOpen 0.52s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+        }
+        @keyframes capsuleHalfLeftOpen {
+          0% { transform: translateX(0) rotate(0deg); }
+          35% { transform: translateX(-6px) rotate(-8deg) scale(1.02); }
+          100% { transform: translateX(-24px) rotate(-18deg); }
+        }
+        @keyframes capsuleHalfRightOpen {
+          0% { transform: translateX(0) rotate(0deg); }
+          35% { transform: translateX(6px) rotate(8deg) scale(1.02); }
+          100% { transform: translateX(24px) rotate(18deg); }
+        }
+        @keyframes prizeRevealIn {
+          0% { opacity: 0; transform: scale(0.88); }
+          100% { opacity: 1; transform: scale(1); }
+        }
         .smokeCloud { position: absolute; background: rgba(255, 220, 240, 0.9); border-radius: 50%; filter: blur(15px); animation: smokeExplode 0.6s ease-out forwards; opacity: 0; }
         @keyframes smokeExplode { 0% { transform: scale(0.2); opacity: 0; } 40% { opacity: 0.9; } 100% { transform: scale(2.2); opacity: 0; } }
         @keyframes guruguruGachaMutedA { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(55px, -42px) rotate(90deg); } 50% { transform: translate(-38px, -72px) rotate(180deg); } 75% { transform: translate(-55px, -28px) rotate(270deg); } 100% { transform: translate(0, 0) rotate(360deg); } }
@@ -1074,9 +1463,91 @@ function App() {
         @keyframes gashagashaChaos3 { 0% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } 25% { transform: translate(11px, 9px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) + 20) * 1deg)); } 50% { transform: translate(-14px, -12px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) - 20) * 1deg)); } 75% { transform: translate(6px, -9px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) + 10) * 1deg)); } 100% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } }
         @keyframes gashagashaChaos4 { 0% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } 25% { transform: translate(-9px, 13px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) - 15) * 1deg)); } 50% { transform: translate(15px, -7px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) + 24) * 1deg)); } 75% { transform: translate(-11px, -11px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) - 8) * 1deg)); } 100% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } }
         @keyframes gashagasha { 0% { transform: translate(1px, 1px) rotate(0deg); } 50% { transform: translate(-1px, -1px) rotate(0.15deg); } 100% { transform: translate(1px, -1px) rotate(-0.15deg); } }
+        @keyframes gashagashaAwakened {
+          0% { transform: translateX(calc(-50% + 1px)) translateY(1px) rotate(0deg); }
+          50% { transform: translateX(calc(-50% - 1px)) translateY(-1px) rotate(0.15deg); }
+          100% { transform: translateX(calc(-50% + 1px)) translateY(-1px) rotate(-0.15deg); }
+        }
+        @keyframes awakenedCapsulePulse {
+          0%, 100% {
+            transform: translateX(-50%) scale(1);
+            box-shadow: 0 0 28px rgba(255, 215, 0, 0.75), 0 0 56px rgba(255, 0, 127, 0.35), 4px 4px 0 rgba(45,52,54,0.3);
+          }
+          50% {
+            transform: translateX(-50%) scale(1.06);
+            box-shadow: 0 0 42px rgba(255, 215, 0, 0.95), 0 0 72px rgba(255, 0, 127, 0.5), 4px 4px 0 rgba(45,52,54,0.3);
+          }
+        }
+        .awakened-capsule-glow {
+          will-change: transform, box-shadow;
+        }
         @keyframes dropCapsule { 0% { transform: translateY(-70px) scale(0.3); opacity: 0; } 50% { transform: translateY(0) scale(1.1); } 75% { transform: translateY(-8px) scale(1); } 100% { transform: translateY(0); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes scaleUp { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes confettiFall {
+          0% { transform: translate3d(0, -12vh, 0) rotate(var(--confetti-rotate)); opacity: 1; }
+          100% { transform: translate3d(var(--confetti-drift), 110vh, 0) rotate(calc(var(--confetti-rotate) + 480deg)); opacity: 0.85; }
+        }
+        .confetti-piece {
+          position: absolute;
+          top: -8%;
+          display: block;
+          pointer-events: none;
+          animation-name: confettiFall;
+          animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+          animation-fill-mode: forwards;
+        }
+        .prize-rays {
+          position: absolute;
+          width: min(420px, 90vw);
+          height: min(420px, 90vw);
+          left: 50%;
+          top: 42%;
+          transform: translate(-50%, -50%);
+          pointer-events: none;
+          z-index: 0;
+          background: radial-gradient(circle, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.2) 28%, transparent 62%);
+          animation: prizeRaysPulse 1.2s ease-out forwards;
+        }
+        .prize-rays--awakened {
+          background: radial-gradient(circle, rgba(255,215,0,0.75) 0%, rgba(255,0,127,0.28) 32%, transparent 65%);
+          animation: prizeRaysPulseAwakened 1.6s ease-out forwards;
+        }
+        @keyframes prizeRaysPulse {
+          0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+          40% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+          100% { opacity: 0.55; transform: translate(-50%, -50%) scale(1.2); }
+        }
+        @keyframes prizeRaysPulseAwakened {
+          0% { opacity: 0; transform: translate(-50%, -50%) scale(0.35); }
+          35% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+          100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1.35); }
+        }
+        .prize-card-glow--awakened {
+          animation: scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), prizeCardShine 1.8s ease-in-out 0.3s infinite alternate;
+        }
+        @keyframes prizeCardShine {
+          0% { filter: drop-shadow(0 0 0 rgba(255, 215, 0, 0)); }
+          100% { filter: drop-shadow(0 0 14px rgba(255, 0, 127, 0.45)); }
+        }
+        .prize-popup-title--awakened {
+          animation: awakenedTitleBob 1.4s ease-in-out infinite;
+        }
+        @keyframes awakenedTitleBob {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.03); }
+        }
+        .soldout-reveal {
+          animation: soldoutFadeIn 1.1s ease-out both;
+        }
+        @keyframes soldoutFadeIn {
+          0% { opacity: 0; transform: rotate(-6deg) scale(0.85); }
+          100% { opacity: 1; transform: rotate(-6deg) scale(1); }
+        }
+        @keyframes domeAwakenGlow {
+          0% { opacity: 0.65; }
+          100% { opacity: 1; }
+        }
         .prize-popup-title {
           margin: 8px 0;
           font-weight: 900;
@@ -1086,6 +1557,8 @@ function App() {
           width: max-content;
           max-width: 100%;
           font-size: clamp(30px, 3.2vw, 44px);
+          position: relative;
+          z-index: 1;
         }
         .prize-popup-title--long {
           font-size: clamp(24px, 2.6vw, 36px);

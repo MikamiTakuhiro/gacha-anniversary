@@ -255,3 +255,256 @@ export function playCapsulePop() {
     feedbackGain.disconnect();
   }, (chimeDuration * 1000) + 500);
 }
+
+/**
+ * ④ 覚醒ファンファーレ（エラー解除 → 変身カットイン）
+ */
+export function playAwakeningFanfare() {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.85;
+  master.connect(ctx.destination);
+
+  // 低域の立ち上がり
+  const boom = ctx.createOscillator();
+  const boomGain = ctx.createGain();
+  boom.type = 'sine';
+  boom.frequency.setValueAtTime(80, t);
+  boom.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+  boomGain.gain.setValueAtTime(0.55, t);
+  boomGain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  boom.connect(boomGain);
+  boomGain.connect(master);
+  boom.start(t);
+  boom.stop(t + 0.42);
+
+  // 上昇アルペジオ
+  const arp = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+  arp.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = t + 0.12 + i * 0.09;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.linearRampToValueAtTime(0.22, start + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.55);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(start + 0.6);
+  });
+
+  // シャイニー高域キラキラ
+  const shimmer = ctx.createBufferSource();
+  shimmer.buffer = createNoiseBuffer(ctx, 1.4);
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 6000;
+  const shGain = ctx.createGain();
+  shGain.gain.setValueAtTime(0.001, t + 0.2);
+  shGain.gain.linearRampToValueAtTime(0.12, t + 0.45);
+  shGain.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+  shimmer.connect(hp);
+  hp.connect(shGain);
+  shGain.connect(master);
+  shimmer.start(t + 0.2);
+  shimmer.stop(t + 1.6);
+
+  // 締めの和音
+  [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = t + 0.7;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.linearRampToValueAtTime(0.14 - i * 0.015, start + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 1.4);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(start + 1.5);
+  });
+
+  setTimeout(() => master.disconnect(), 2400);
+}
+
+/**
+ * ⑤ ハンドル回転のギアクリック（軽め・間引き前提）
+ */
+export function playGearClick() {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.35;
+  master.connect(ctx.destination);
+
+  const click = ctx.createOscillator();
+  const clickGain = ctx.createGain();
+  click.type = 'square';
+  click.frequency.setValueAtTime(180 + Math.random() * 40, t);
+  click.frequency.exponentialRampToValueAtTime(90, t + 0.04);
+  clickGain.gain.setValueAtTime(0.18, t);
+  clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  click.connect(clickGain);
+  clickGain.connect(master);
+  click.start(t);
+  click.stop(t + 0.06);
+
+  const tickNoise = ctx.createBufferSource();
+  tickNoise.buffer = createNoiseBuffer(ctx, 0.04);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 900 + Math.random() * 300;
+  bp.Q.value = 4;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.2, t);
+  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+  tickNoise.connect(bp);
+  bp.connect(nGain);
+  nGain.connect(master);
+  tickNoise.start(t);
+  tickNoise.stop(t + 0.04);
+
+  setTimeout(() => master.disconnect(), 80);
+}
+
+/**
+ * ⑥ 覚醒時の開封（通常より厚めのキラキラ）
+ */
+export function playAwakenedCapsulePop() {
+  playCapsulePop();
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.55;
+  master.connect(ctx.destination);
+
+  const fanfare = [784, 988, 1175, 1568];
+  fanfare.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = t + 0.08 + i * 0.05;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.linearRampToValueAtTime(0.16, start + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 1.2);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(start + 1.3);
+  });
+
+  setTimeout(() => master.disconnect(), 1600);
+}
+
+/**
+ * ⑦ 完売の静かな余韻
+ */
+export function playSoldoutChime() {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.4;
+  master.connect(ctx.destination);
+
+  [392, 523.25].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const start = t + i * 0.18;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.linearRampToValueAtTime(0.12, start + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 1.6);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(start);
+    osc.stop(start + 1.7);
+  });
+
+  setTimeout(() => master.disconnect(), 2000);
+}
+
+/**
+ * ⑧ 排出前の溜め（低域がじわっと盛り上がる）
+ */
+export function playRevealSuspense() {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.45;
+  master.connect(ctx.destination);
+
+  const drone = ctx.createOscillator();
+  const droneGain = ctx.createGain();
+  drone.type = 'sine';
+  drone.frequency.setValueAtTime(55, t);
+  drone.frequency.linearRampToValueAtTime(95, t + 1.1);
+  droneGain.gain.setValueAtTime(0.001, t);
+  droneGain.gain.linearRampToValueAtTime(0.22, t + 0.5);
+  droneGain.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+  drone.connect(droneGain);
+  droneGain.connect(master);
+  drone.start(t);
+  drone.stop(t + 1.35);
+
+  const pulse = ctx.createOscillator();
+  const pulseGain = ctx.createGain();
+  pulse.type = 'triangle';
+  pulse.frequency.setValueAtTime(180, t + 0.3);
+  pulse.frequency.linearRampToValueAtTime(240, t + 1.0);
+  pulseGain.gain.setValueAtTime(0.001, t + 0.3);
+  pulseGain.gain.linearRampToValueAtTime(0.06, t + 0.7);
+  pulseGain.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+  pulse.connect(pulseGain);
+  pulseGain.connect(master);
+  pulse.start(t + 0.3);
+  pulse.stop(t + 1.25);
+
+  setTimeout(() => master.disconnect(), 1500);
+  return () => master.disconnect();
+}
+
+/**
+ * ⑨ 卵が揺れる「カタ…カタ…」音
+ */
+export function playEggWobbleTick(step = 0) {
+  const ctx = getCtx();
+  const t = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.28 + Math.min(step * 0.015, 0.12);
+  master.connect(ctx.destination);
+
+  const knock = ctx.createOscillator();
+  const knockGain = ctx.createGain();
+  knock.type = 'sine';
+  knock.frequency.setValueAtTime(220 + step * 12, t);
+  knock.frequency.exponentialRampToValueAtTime(120, t + 0.06);
+  knockGain.gain.setValueAtTime(0.35, t);
+  knockGain.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+  knock.connect(knockGain);
+  knockGain.connect(master);
+  knock.start(t);
+  knock.stop(t + 0.08);
+
+  const tap = ctx.createBufferSource();
+  tap.buffer = createNoiseBuffer(ctx, 0.03);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 700 + step * 40;
+  bp.Q.value = 5;
+  const tapGain = ctx.createGain();
+  tapGain.gain.setValueAtTime(0.12, t);
+  tapGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+  tap.connect(bp);
+  bp.connect(tapGain);
+  tapGain.connect(master);
+  tap.start(t);
+  tap.stop(t + 0.04);
+
+  setTimeout(() => master.disconnect(), 90);
+}
