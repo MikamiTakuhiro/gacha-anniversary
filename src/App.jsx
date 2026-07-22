@@ -316,7 +316,6 @@ function App() {
   const [scale, setScale] = useState(1);
   const [popupScale, setPopupScale] = useState(1);
   const [isAwakeningFx, setIsAwakeningFx] = useState(false);
-  const [shakeLevel, setShakeLevel] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const [isSoldoutReveal, setIsSoldoutReveal] = useState(false);
   const [revealPhase, setRevealPhase] = useState(null);
@@ -527,8 +526,6 @@ function App() {
   };
 
   const noteGearAndShake = (nextAccumulated) => {
-    const level = Math.min(4, Math.floor(nextAccumulated / 120) + 1);
-    setShakeLevel(level);
     if (nextAccumulated - lastGearAngle.current >= 28) {
       lastGearAngle.current = nextAccumulated;
       playGearClick();
@@ -596,7 +593,6 @@ function App() {
     lastAngle.current = getAngle(e.clientX, e.clientY);
     accumulatedRotation.current = 0;
     lastGearAngle.current = 0;
-    setShakeLevel(1);
     setIsShaking(true);
   };
 
@@ -617,7 +613,6 @@ function App() {
     if (accumulatedRotation.current >= 360) {
       isDragging.current = false;
       setIsShaking(false);
-      setShakeLevel(0);
       startSequenceAfterTurn();
     }
   };
@@ -625,7 +620,6 @@ function App() {
   const handleMouseUp = () => {
     isDragging.current = false;
     setIsShaking(false);
-    setShakeLevel(0);
     if (!currentPrize && !isBodyThumping) {
       setDialRotation(0);
     }
@@ -640,7 +634,6 @@ function App() {
     lastAngle.current = getAngle(touch.clientX, touch.clientY);
     accumulatedRotation.current = 0;
     lastGearAngle.current = 0;
-    setShakeLevel(1);
     setIsShaking(true);
   };
 
@@ -663,7 +656,6 @@ function App() {
     if (accumulatedRotation.current >= 360) {
       isDragging.current = false;
       setIsShaking(false);
-      setShakeLevel(0);
       startSequenceAfterTurn();
     }
   };
@@ -671,7 +663,6 @@ function App() {
   const handleTouchEnd = () => {
     isDragging.current = false;
     setIsShaking(false);
-    setShakeLevel(0);
     if (!currentPrize && !isBodyThumping) {
       setDialRotation(0);
     }
@@ -1100,14 +1091,8 @@ function App() {
             {gachaStatus === 'playing' && !currentPrize && capsuleStyles.map((style, i) => {
               if (i >= remainingCount) return null;
               const color = CAPSULE_COLORS[style.colorIdx];
-              // 回転が進むほど少し速くなる（Lv1=4.2s → Lv4=3.0s）。style.duration には依存しない
-              const shakeDurByLevel = ['4.2s', '3.8s', '3.4s', '3.0s'];
-              const shakeDur = shakeDurByLevel[Math.max(0, Math.min(3, shakeLevel - 1))];
-              const shakeName = shakeLevel >= 4
-                ? (i % 2 === 0 ? 'guruguruGachaIntenseA' : 'guruguruGachaIntenseB')
-                : (i % 2 === 0 ? 'guruguruGachaMutedA' : 'guruguruGachaMutedB');
               const capAnim = isShaking
-                ? `${shakeName} ${shakeDur} infinite ease-in-out`
+                ? `${i % 2 === 0 ? 'guruguruGachaMutedA' : 'guruguruGachaMutedB'} ${style.duration} infinite linear`
                 : isBodyThumping
                   ? `gashagashaChaos${style.chaosVariant} 0.12s infinite linear`
                   : `capsuleIdle${style.idleVariant} ${style.idleDuration} ease-in-out infinite`;
@@ -1467,10 +1452,8 @@ function App() {
         }
         .smokeCloud { position: absolute; background: rgba(255, 220, 240, 0.9); border-radius: 50%; filter: blur(15px); animation: smokeExplode 0.6s ease-out forwards; opacity: 0; }
         @keyframes smokeExplode { 0% { transform: scale(0.2); opacity: 0; } 40% { opacity: 0.9; } 100% { transform: scale(2.2); opacity: 0; } }
-        @keyframes guruguruGachaMutedA { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(12px, -10px) rotate(18deg); } 50% { transform: translate(-9px, -16px) rotate(36deg); } 75% { transform: translate(-12px, -6px) rotate(54deg); } 100% { transform: translate(0, 0) rotate(72deg); } }
-        @keyframes guruguruGachaMutedB { 0% { transform: translate(0, 0) rotate(0deg); } 30% { transform: translate(-13px, -13px) rotate(-22deg); } 65% { transform: translate(10px, -6px) rotate(-44deg); } 85% { transform: translate(4px, -18px) rotate(-58deg); } 100% { transform: translate(0, 0) rotate(-72deg); } }
-        @keyframes guruguruGachaIntenseA { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(16px, -12px) rotate(24deg); } 50% { transform: translate(-12px, -20px) rotate(48deg); } 75% { transform: translate(-16px, -8px) rotate(68deg); } 100% { transform: translate(0, 0) rotate(90deg); } }
-        @keyframes guruguruGachaIntenseB { 0% { transform: translate(0, 0) rotate(0deg); } 30% { transform: translate(-17px, -17px) rotate(-28deg); } 65% { transform: translate(13px, -8px) rotate(-52deg); } 85% { transform: translate(5px, -22px) rotate(-72deg); } 100% { transform: translate(0, 0) rotate(-90deg); } }
+        @keyframes guruguruGachaMutedA { 0% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(55px, -42px) rotate(90deg); } 50% { transform: translate(-38px, -72px) rotate(180deg); } 75% { transform: translate(-55px, -28px) rotate(270deg); } 100% { transform: translate(0, 0) rotate(360deg); } }
+        @keyframes guruguruGachaMutedB { 0% { transform: translate(0, 0) rotate(0deg); } 30% { transform: translate(-58px, -58px) rotate(-120deg); } 65% { transform: translate(48px, -28px) rotate(-240deg); } 85% { transform: translate(14px, -78px) rotate(-300deg); } 100% { transform: translate(0, 0) rotate(-360deg); } }
         @keyframes capsuleIdle1 { 0%, 100% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } 50% { transform: translate(3px, -2px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) + 5) * 1deg)); } }
         @keyframes capsuleIdle2 { 0%, 100% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } 50% { transform: translate(-4px, 2px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) - 7) * 1deg)); } }
         @keyframes capsuleIdle3 { 0%, 100% { transform: translate(0, 0) scale(var(--cap-scale)) rotate(calc(var(--cap-rotate) * 1deg)); } 50% { transform: translate(2px, 3px) scale(var(--cap-scale)) rotate(calc((var(--cap-rotate) + 9) * 1deg)); } }
