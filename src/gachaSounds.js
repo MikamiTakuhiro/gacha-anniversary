@@ -1,4 +1,10 @@
+import handleTurnWav from './audio/gachagacha.wav';
+import capsuleOutWav from './audio/capsule_out.wav';
+
 let sharedCtx = null;
+let handleTurnAudio = null;
+let handleTurnPlaying = false;
+let capsuleOutAudio = null;
 
 function getCtx() {
   if (!sharedCtx) {
@@ -16,6 +22,8 @@ export function unlockAudio() {
   source.buffer = buffer;
   source.connect(ctx.destination);
   source.start(0);
+  getHandleTurnAudio();
+  getCapsuleOutAudio();
 }
 
 function createNoiseBuffer(ctx, durationSec) {
@@ -27,82 +35,28 @@ function createNoiseBuffer(ctx, durationSec) {
 }
 
 /**
- * ① 筐体駆動音（ガランガラン……）
- * 【テンポ大幅減速】発音間隔を広くし、1発ずつの響きを長くして、重々しい「ガランガラン」を表現
+ * ① カプセル排出音（capsule_out.wav を1回再生）
  */
-export function playMachineRattle(durationMs = 800) {
-  const ctx = getCtx();
-  const master = ctx.createGain();
-  
-  // 迫力のある音量をしっかりと維持（2.5）
-  master.gain.value = 2.5; 
-  master.connect(ctx.destination);
+export const CAPSULE_OUT_DURATION_MS = 1500;
+export const CAPSULE_OUT_DROP_DELAY_MS = 200;
 
-  let active = true;
+function getCapsuleOutAudio() {
+  if (!capsuleOutAudio) {
+    capsuleOutAudio = new Audio(capsuleOutWav);
+    capsuleOutAudio.preload = 'auto';
+  }
+  return capsuleOutAudio;
+}
 
-  const playSingleGaran = () => {
-    if (!active) return;
-    const t = ctx.currentTime;
-
-    // ドラム全体が重く擦れ合う、余韻の長い「ガラン……」という摩擦音の核
-    const frictionNoise = ctx.createBufferSource();
-    // 【修正】音の消え方をゆったりにするため、バッファ時間を少し長め（0.15秒）に確保
-    frictionNoise.buffer = createNoiseBuffer(ctx, 0.15);
-    
-    const scratchFilter = ctx.createBiquadFilter();
-    scratchFilter.type = 'bandpass';
-    scratchFilter.frequency.setValueAtTime(110 + Math.random() * 40, t); // より低く安定した響き
-    scratchFilter.Q.value = 6.0; // フィルターの鋭さを絶妙に調整し、空洞内の響きを再現
-    
-    const scratchGain = ctx.createGain();
-    scratchGain.gain.setValueAtTime(0.6, t);
-    // 【修正】1発ずつの音の減衰（フェードアウト）をゆったり引き伸ばし、響きを持たせる
-    scratchGain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-    
-    frictionNoise.connect(scratchFilter);
-    scratchFilter.connect(scratchGain);
-    scratchGain.connect(master);
-    frictionNoise.start(t); frictionNoise.stop(t + 0.15);
-
-    // 内部の太いギアが「ゴツン」と噛み合う重低音
-    const gearOsc = ctx.createOscillator();
-    const gearGain = ctx.createGain();
-    gearOsc.type = 'sawtooth';
-    gearOsc.frequency.setValueAtTime(40 + Math.random() * 10, t); // 地鳴りのような40Hz
-    
-    gearGain.gain.setValueAtTime(0.45, t);
-    gearGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    
-    gearOsc.connect(gearGain);
-    gearGain.connect(master);
-    gearOsc.start(t); gearOsc.stop(t + 0.13);
-  };
-
-  // 最初の1発
-  playSingleGaran();
-  
-  // 【修正】細かく連打せず、180ms〜260msという大きな間隔をあけて「ガラン、ガラン」とゆったり鳴らす
-  const triggerNext = () => {
-    if (!active) return;
-    playSingleGaran();
-    const nextInterval = 180 + Math.random() * 80; 
-    setTimeout(triggerNext, nextInterval);
-  };
-  
-  setTimeout(triggerNext, 200);
-
-  const timeout = setTimeout(() => {
-    active = false;
-    const t = ctx.currentTime;
-    master.gain.setValueAtTime(master.gain.value, t);
-    master.gain.exponentialRampToValueAtTime(0.001, t + 0.2); // 終わりのフェードアウトも長めにとって自然に
-    setTimeout(() => master.disconnect(), 250);
-  }, durationMs);
-
+export function playCapsuleOutSound() {
+  const audio = getCapsuleOutAudio();
+  audio.loop = false;
+  audio.currentTime = 0;
+  const playPromise = audio.play();
+  if (playPromise) playPromise.catch(() => {});
   return () => {
-    active = false;
-    clearTimeout(timeout);
-    master.disconnect();
+    audio.pause();
+    audio.currentTime = 0;
   };
 }
 
@@ -332,43 +286,35 @@ export function playAwakeningFanfare() {
 }
 
 /**
- * ⑤ ハンドル回転のギアクリック（軽め・間引き前提）
+ * ⑤ ハンドル回転中のループ音（gachagacha.wav）
  */
-export function playGearClick() {
-  const ctx = getCtx();
-  const t = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.value = 0.35;
-  master.connect(ctx.destination);
+function getHandleTurnAudio() {
+  if (!handleTurnAudio) {
+    handleTurnAudio = new Audio(handleTurnWav);
+    handleTurnAudio.loop = true;
+    handleTurnAudio.preload = 'auto';
+  }
+  return handleTurnAudio;
+}
 
-  const click = ctx.createOscillator();
-  const clickGain = ctx.createGain();
-  click.type = 'square';
-  click.frequency.setValueAtTime(180 + Math.random() * 40, t);
-  click.frequency.exponentialRampToValueAtTime(90, t + 0.04);
-  clickGain.gain.setValueAtTime(0.18, t);
-  clickGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-  click.connect(clickGain);
-  clickGain.connect(master);
-  click.start(t);
-  click.stop(t + 0.06);
+export function startHandleTurnSound() {
+  const audio = getHandleTurnAudio();
+  if (handleTurnPlaying && !audio.paused) return;
+  audio.currentTime = 0;
+  handleTurnPlaying = true;
+  const playPromise = audio.play();
+  if (playPromise) {
+    playPromise.catch(() => {
+      handleTurnPlaying = false;
+    });
+  }
+}
 
-  const tickNoise = ctx.createBufferSource();
-  tickNoise.buffer = createNoiseBuffer(ctx, 0.04);
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass';
-  bp.frequency.value = 900 + Math.random() * 300;
-  bp.Q.value = 4;
-  const nGain = ctx.createGain();
-  nGain.gain.setValueAtTime(0.2, t);
-  nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
-  tickNoise.connect(bp);
-  bp.connect(nGain);
-  nGain.connect(master);
-  tickNoise.start(t);
-  tickNoise.stop(t + 0.04);
-
-  setTimeout(() => master.disconnect(), 80);
+export function stopHandleTurnSound() {
+  handleTurnPlaying = false;
+  if (!handleTurnAudio) return;
+  handleTurnAudio.pause();
+  handleTurnAudio.currentTime = 0;
 }
 
 /**
