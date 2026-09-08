@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   unlockAudio,
-  playMachineRattle,
+  playCapsuleOutSound,
+  CAPSULE_OUT_DURATION_MS,
+  CAPSULE_OUT_DROP_DELAY_MS,
   playSmokeSound,
   playCapsulePop,
   playAwakeningFanfare,
-  playGearClick,
+  startHandleTurnSound,
+  stopHandleTurnSound,
   playAwakenedCapsulePop,
   playSoldoutChime,
   playRevealSuspense,
@@ -133,12 +136,17 @@ const OpenedCapsuleHalves = ({ color, size = 96 }) => {
   );
 };
 
-const SplittingCapsule = ({ color, size = 96, isOpening }) => {
+const SplittingCapsule = ({ color, size = 96, isOpening, stayOpen }) => {
   const half = size / 2;
+  const stageClass = isOpening
+    ? 'capsule-split-stage--open'
+    : stayOpen
+      ? 'capsule-split-stage--opened'
+      : 'capsule-split-stage';
   return (
     <div
-      className={isOpening ? 'capsule-split-stage--open' : 'capsule-split-stage'}
-      style={{ position: 'relative', width: size, height: size, marginBottom: '18px' }}
+      className={stageClass}
+      style={{ position: 'relative', width: size, height: size, marginBottom: stayOpen ? 0 : 18 }}
     >
       <div
         className="capsule-split-half capsule-split-half--left"
@@ -327,7 +335,6 @@ function App() {
   const isDragging = useRef(false);
   const accumulatedRotation = useRef(0); 
   const lastAngle = useRef(0);
-  const lastGearAngle = useRef(0);
   const awakeningTimerRef = useRef(null);
   const revealTimersRef = useRef([]);
   const wobbleSoundRef = useRef(null);
@@ -356,7 +363,7 @@ function App() {
   // 演出タイミングに合わせた効果音
   useEffect(() => {
     if (!isBodyThumping) return;
-    return playMachineRattle(800);
+    return playCapsuleOutSound();
   }, [isBodyThumping]);
 
   useEffect(() => {
@@ -525,13 +532,6 @@ function App() {
     }, 2400);
   };
 
-  const noteGearAndShake = (nextAccumulated) => {
-    if (nextAccumulated - lastGearAngle.current >= 28) {
-      lastGearAngle.current = nextAccumulated;
-      playGearClick();
-    }
-  };
-
   // 優しいランダム生成
   const generateGentleRandomSchedule = (rawPrizes) => {
     const N = rawPrizes.length;
@@ -592,7 +592,6 @@ function App() {
     isDragging.current = true;
     lastAngle.current = getAngle(e.clientX, e.clientY);
     accumulatedRotation.current = 0;
-    lastGearAngle.current = 0;
     setIsShaking(true);
   };
 
@@ -606,13 +605,14 @@ function App() {
     if (diff > 0) {
       accumulatedRotation.current += diff;
       setDialRotation(prev => prev + diff);
-      noteGearAndShake(accumulatedRotation.current);
+      startHandleTurnSound();
     }
     lastAngle.current = currentAngle;
 
     if (accumulatedRotation.current >= 360) {
       isDragging.current = false;
       setIsShaking(false);
+      stopHandleTurnSound();
       startSequenceAfterTurn();
     }
   };
@@ -620,6 +620,7 @@ function App() {
   const handleMouseUp = () => {
     isDragging.current = false;
     setIsShaking(false);
+    stopHandleTurnSound();
     if (!currentPrize && !isBodyThumping) {
       setDialRotation(0);
     }
@@ -633,7 +634,6 @@ function App() {
     const touch = e.touches[0];
     lastAngle.current = getAngle(touch.clientX, touch.clientY);
     accumulatedRotation.current = 0;
-    lastGearAngle.current = 0;
     setIsShaking(true);
   };
 
@@ -649,13 +649,14 @@ function App() {
     if (diff > 0) {
       accumulatedRotation.current += diff;
       setDialRotation(prev => prev + diff);
-      noteGearAndShake(accumulatedRotation.current);
+      startHandleTurnSound();
     }
     lastAngle.current = currentAngle;
 
     if (accumulatedRotation.current >= 360) {
       isDragging.current = false;
       setIsShaking(false);
+      stopHandleTurnSound();
       startSequenceAfterTurn();
     }
   };
@@ -663,6 +664,7 @@ function App() {
   const handleTouchEnd = () => {
     isDragging.current = false;
     setIsShaking(false);
+    stopHandleTurnSound();
     if (!currentPrize && !isBodyThumping) {
       setDialRotation(0);
     }
@@ -672,21 +674,22 @@ function App() {
     clearRevealTimers();
     setIsDispenseZoom(true);
     setIsBodyThumping(true);
-    setTimeout(() => {
-      setIsBodyThumping(false);
-      let prize = '';
-      if (gachaStatus === 'awakened') {
-        prize = loadedConfig.prizes[loadedConfig.prizes.length - 1];
-      } else {
-        prize = orderedPrizes[orderedPrizes.length - remainingCount];
-      }
-      const dispensedIndex = remainingCount - 1;
-      setDispensedCapsule(buildDispensedCapsule(capsuleStyles, dispensedIndex, gachaStatus === 'awakened'));
-      setCurrentPrize(prize);
-      setRemainingCount(prev => prev - 1);
-      setIsCapsuleVisible(true);
-      setRevealPhase('zoom');
 
+    let prize = '';
+    if (gachaStatus === 'awakened') {
+      prize = loadedConfig.prizes[loadedConfig.prizes.length - 1];
+    } else {
+      prize = orderedPrizes[orderedPrizes.length - remainingCount];
+    }
+    const dispensedIndex = remainingCount - 1;
+    setDispensedCapsule(buildDispensedCapsule(capsuleStyles, dispensedIndex, gachaStatus === 'awakened'));
+    setCurrentPrize(prize);
+
+    scheduleReveal(() => setIsCapsuleVisible(true), CAPSULE_OUT_DROP_DELAY_MS);
+    scheduleReveal(() => {
+      setIsBodyThumping(false);
+      setRemainingCount(prev => prev - 1);
+      setRevealPhase('zoom');
       scheduleReveal(() => setRevealPhase('wobble'), 700);
       scheduleReveal(() => setRevealPhase('opening'), 2400);
       scheduleReveal(() => {
@@ -694,7 +697,7 @@ function App() {
         setIsDispenseZoom(false);
         setIsCapsulePopped(true);
       }, 2900);
-    }, 800);
+    }, CAPSULE_OUT_DURATION_MS);
   };
 
   const nextGacha = () => {
@@ -1071,7 +1074,7 @@ function App() {
               >完 売</div>
             )}
 
-            {gachaStatus === 'awakened' && remainingCount > 0 && !currentPrize && (
+            {gachaStatus === 'awakened' && remainingCount > 0 && (!currentPrize || isBodyThumping) && (
               <div
                 className="awakened-capsule-glow"
                 style={{
@@ -1088,7 +1091,7 @@ function App() {
               />
             )}
 
-            {gachaStatus === 'playing' && !currentPrize && capsuleStyles.map((style, i) => {
+            {gachaStatus === 'playing' && (!currentPrize || isBodyThumping) && capsuleStyles.map((style, i) => {
               if (i >= remainingCount) return null;
               const color = CAPSULE_COLORS[style.colorIdx];
               const capAnim = isShaking
@@ -1261,12 +1264,12 @@ function App() {
                 borderBottom: '2px solid rgba(255,255,255,0.25)', zIndex: 3, pointerEvents: 'none'
               }} />
 
-              {currentPrize && isCapsuleVisible && dispensedCapsule && revealPhase !== 'wobble' && revealPhase !== 'opening' && (
+              {currentPrize && isCapsuleVisible && dispensedCapsule && !isCapsulePopped && revealPhase !== 'wobble' && revealPhase !== 'opening' && (
                 <RoundCapsule
                   color={dispensedCapsule.color}
                   gradientAngle={dispensedCapsule.gradientAngle}
                   size={72}
-                  style={{ zIndex: 2, animation: 'dropCapsule 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards' }}
+                  style={{ zIndex: 2, animation: 'dropCapsule 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards' }}
                 />
               )}
             </div>
@@ -1354,25 +1357,32 @@ function App() {
               >
                 {gachaStatus === 'awakened' ? '✨ 20歳の誕生日おめでとう ✨' : '🎉 カプセルをあけました！'}
               </h1>
-              <div
-                className={`prize-card-glow${gachaStatus === 'awakened' ? ' prize-card-glow--awakened' : ''}`}
-                style={{
-                  background: '#fff', color: POP_OUTLINE,
-                  padding: 'clamp(20px, 5vw, 44px) clamp(16px, 5vw, 56px)',
-                  borderRadius: '28px',
-                  fontSize: 'clamp(22px, 6vw, 44px)', fontWeight: '900', lineHeight: 1.3,
-                  border: gachaStatus === 'awakened' ? '5px solid #ff007f' : `5px solid ${POP_OUTLINE}`,
-                  boxShadow: gachaStatus === 'awakened' ? '0 20px 0 #ffb3c6, 0 30px 50px rgba(255,0,127,0.25)' : '0 20px 0 #bde0fe, 0 30px 50px rgba(45,52,54,0.2)',
-                  textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box',
-                  wordBreak: 'break-word',
-                  ...(gachaStatus !== 'awakened'
-                    ? { animation: 'scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }
-                    : {}),
-                  position: 'relative',
-                  zIndex: 1,
-                }}
-              >
-                {currentPrize}
+              <div className="prize-from-capsule">
+                <SplittingCapsule
+                  color={dispensedCapsule.color}
+                  size={Math.round(88 + popupScale * 16)}
+                  stayOpen
+                />
+                <div
+                  className={`prize-card-glow${gachaStatus === 'awakened' ? ' prize-card-glow--awakened' : ''}`}
+                  style={{
+                    background: '#fff', color: POP_OUTLINE,
+                    padding: 'clamp(20px, 5vw, 44px) clamp(16px, 5vw, 56px)',
+                    borderRadius: '28px',
+                    fontSize: 'clamp(22px, 6vw, 44px)', fontWeight: '900', lineHeight: 1.3,
+                    border: gachaStatus === 'awakened' ? '5px solid #ff007f' : `5px solid ${POP_OUTLINE}`,
+                    boxShadow: gachaStatus === 'awakened' ? '0 20px 0 #ffb3c6, 0 30px 50px rgba(255,0,127,0.25)' : '0 20px 0 #bde0fe, 0 30px 50px rgba(45,52,54,0.2)',
+                    textAlign: 'center', width: '100%', maxWidth: '100%', boxSizing: 'border-box',
+                    wordBreak: 'break-word',
+                    animation: gachaStatus === 'awakened'
+                      ? 'cardEmergeFromCapsule 0.7s cubic-bezier(0.22, 1.15, 0.36, 1) both, prizeCardShine 1.8s ease-in-out 0.45s infinite alternate'
+                      : 'cardEmergeFromCapsule 0.65s cubic-bezier(0.22, 1.15, 0.36, 1) both',
+                    position: 'relative',
+                    zIndex: 2,
+                  }}
+                >
+                  {currentPrize}
+                </div>
               </div>
               <button onClick={nextGacha} style={{
                 marginTop: 'clamp(24px, 5vw, 40px)',
@@ -1436,6 +1446,26 @@ function App() {
         .capsule-split-stage--open .capsule-split-half--right {
           animation: capsuleHalfRightOpen 0.52s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
         }
+        .capsule-split-stage--opened .capsule-split-half--left {
+          transform: translateX(-24px) rotate(-18deg);
+        }
+        .capsule-split-stage--opened .capsule-split-half--right {
+          transform: translateX(24px) rotate(18deg);
+        }
+        .prize-from-capsule {
+          position: relative;
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          margin-top: 4px;
+        }
+        .prize-from-capsule .capsule-split-stage--opened {
+          z-index: 1;
+        }
+        .prize-from-capsule .prize-card-glow {
+          margin-top: 18px;
+        }
         @keyframes capsuleHalfLeftOpen {
           0% { transform: translateX(0) rotate(0deg); }
           35% { transform: translateX(-6px) rotate(-8deg) scale(1.02); }
@@ -1445,6 +1475,11 @@ function App() {
           0% { transform: translateX(0) rotate(0deg); }
           35% { transform: translateX(6px) rotate(8deg) scale(1.02); }
           100% { transform: translateX(24px) rotate(18deg); }
+        }
+        @keyframes cardEmergeFromCapsule {
+          0% { opacity: 0; transform: translateY(-36px) scale(0.32); }
+          62% { opacity: 1; transform: translateY(8px) scale(1.03); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
         }
         @keyframes prizeRevealIn {
           0% { opacity: 0; transform: scale(0.88); }
@@ -1524,7 +1559,7 @@ function App() {
           100% { opacity: 0.7; transform: translate(-50%, -50%) scale(1.35); }
         }
         .prize-card-glow--awakened {
-          animation: scaleUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), prizeCardShine 1.8s ease-in-out 0.3s infinite alternate;
+          filter: drop-shadow(0 0 0 rgba(255, 215, 0, 0));
         }
         @keyframes prizeCardShine {
           0% { filter: drop-shadow(0 0 0 rgba(255, 215, 0, 0)); }
